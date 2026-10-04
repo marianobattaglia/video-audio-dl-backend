@@ -1,5 +1,5 @@
-# Candidate configuration only. Qualify egress enforcement before public use.
-# Render must support the existing NET_ADMIN firewall; startup fails otherwise.
+# Uses an unprivileged checked proxy and an inherited seccomp download sandbox.
+# Confirm startup and downloads on Render before qualifying deployment.
 services:
   - type: web
     name: video-audio-dl-backend

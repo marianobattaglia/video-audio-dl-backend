@@ -7,16 +7,12 @@ services:
       - "127.0.0.1:3000:3000"
     cap_drop:
       - ALL
-    cap_add:
-      - NET_ADMIN
-      - SETUID
-      - SETGID
     security_opt:
       - no-new-privileges:true
     read_only: true
     tmpfs:
       - /tmp/downloads:rw,noexec,nosuid,nodev,size=256m,uid=1000,gid=1000
-      - /tmp/yt-dlp:rw,exec,nosuid,nodev,size=128m,uid=1000,gid=1000
+      - /tmp/yt-dlp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000
       - /run:rw,noexec,nosuid,nodev,size=16m,mode=755
     mem_limit: 512m
     cpus: 0.1

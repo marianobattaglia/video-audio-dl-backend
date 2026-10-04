@@ -1,52 +1,67 @@
 # Validación del host de backend
 
-## Estado de esta implementación
+## Evidencia y estado
 
-**Pendiente; Render no está validado para uso público con este contenedor.**
+El usuario publicó ambos repositorios en GitHub y confirmó el frontend funcionando en Vercel. El primer despliegue del backend en Render construyó y publicó la imagen, pero al arrancar registró:
 
-Se consultaron las fuentes oficiales de Docker, Blueprints y el plan gratuito de Render durante la implementación. Confirman el despliegue desde Dockerfile, la configuración de salud y los límites de la instancia. La configuración documentada no ofrece un campo para agregar `NET_ADMIN`; esto no prueba por sí solo cuáles son las capacidades efectivas del contenedor. No se ejecutó un contenedor en Render y no hay evidencia de que se pueda instalar el firewall actual allí.
+```text
+Cannot enforce outbound destination restrictions. This host must support IPv4/IPv6 firewall rules and NET_ADMIN; public deployment is not qualified. The API will not start.
+Exited with status 1
+```
 
-Durante la implementación inicial Docker no estaba disponible en PATH. Posteriormente se encontró Docker Desktop y se completó la construcción local de la imagen, incluida la instalación de certificados y la verificación del checksum de `yt-dlp`. Se corrigió el Dockerfile para configurar `TMPDIR` después de crear su carpeta, evitando que la instalación de paquetes use un directorio inexistente. No se ejecutó el servicio para esta comprobación, no se procesaron medios y no se midieron recursos. Los límites de 64 MB por trabajo, 192 MB temporales, 600 segundos y una descarga simultánea son un punto de partida que requiere medición.
+El resultado rechaza el mecanismo anterior en esta instancia. El usuario autorizó sustituirlo por un proxy interno y un aislamiento seccomp sin privilegios.
 
-La separación del código y su configuración no certifican la compatibilidad del host. La tarea 3.2 permanece abierta y no se habilitó ningún despliegue público.
+La nueva imagen se construyó localmente: C compilado con advertencias tratadas como errores, checksum y versión del wheel oficial de yt-dlp comprobados, soporte AES presente y sintaxis Python revisada. **Su arranque y sus descargas en Render todavía están pendientes.** No se ejecutaron pruebas automatizadas ni descargas con esta implementación. La tarea 3.2 permanece abierta.
 
-## Protección conservada
+## Protección implementada
 
-1. La API valida HTTP/HTTPS, puertos 80/443, ausencia de credenciales y todas las direcciones obtenidas al resolver el dominio inicial.
-2. Antes de iniciar la API, el entrypoint exige acceso a las tablas IPv4/IPv6 y aborta si no están disponibles.
-3. Instala las reglas de salida originales que rechazan direcciones privadas, loopback, link-local, reservadas y destinos que no sean HTTP/HTTPS públicos.
-4. Ejecuta Node y los procesos de descarga como el usuario `node`, sin permitirles cambiar las reglas.
+1. La API valida una URL inicial HTTP/HTTPS pública, en 80/443, sin credenciales.
+2. Antes de escuchar, comprueba que seccomp puede instalarse con no_new_privs y que las herramientas se ejecutan bajo el filtro.
+3. Cada descargador instala el filtro antes de yt-dlp. Solo permite sockets Unix; bloquea sockets de Internet y otros dominios de sockets, io_uring, ptrace, acceso a memoria de otros procesos y obtención de sus descriptores. Comprueba la arquitectura y rechaza ABI alternativos.
+4. Cierra previamente los descriptores heredados, salvo stdin/stdout/stderr. El filtro se hereda por fork/exec, incluyendo FFmpeg y FFprobe; no hay una opción para omitirlo.
+5. El adaptador dirige el proxy HTTP de yt-dlp por un socket Unix privado con permiso aleatorio por trabajo. No se expone ningún puerto TCP de proxy. Plugins, JavaScript y componentes remotos están desactivados.
+6. El proxy comprueba todas las IP de cada nuevo destino y rechaza IP privadas, reservadas, mapeadas o respuestas mixtas. Conecta a una IP literal comprobada sin segunda resolución y comprueba la dirección efectiva.
+7. HTTP usa puerto 80 y HTTPS usa CONNECT a 443. Las redirecciones y segmentos requieren nuevas comprobaciones. TLS sigue verificándose en yt-dlp contra el sitio original, sin interceptar certificados.
+8. Se limita la espera DNS/conexión y se revoca el permiso y sus conexiones al finalizar, cancelar, superar los límites o apagar la API.
 
-El firewall actúa sobre las conexiones finales, incluso si `yt-dlp` sigue una redirección o vuelve a resolver el dominio. La validación inicial de URL no sustituye ese control. Las reglas DNS actuales contemplan el resolver de Docker `127.0.0.11`; hay que comprobar el resolver real del host además de las capacidades.
+La seguridad no depende exclusivamente de validar la URL inicial ni de que cada extractor respete voluntariamente el proxy: los sockets directos del descargador y de sus hijos quedan bloqueados por el filtro.
 
-## Evidencia requerida antes de habilitar descargas públicas
+## Compatibilidad
 
-Registrar por cada caso: host/plan, versión o commit del backend, fecha, configuración, resultado y registros relevantes sin claves ni permisos de descarga.
+El descargador nativo transfiere HTTP/HTTPS y FFmpeg une, convierte y remuxea archivos locales. Las rutas que necesitan descarga directa de FFmpeg, otros protocolos, plugins o runtimes externos se rechazan. No se promete compatibilidad con todos los sitios o transmisiones en vivo. Los lanzadores originales de terminal permanecen separados de la API.
+
+## Comprobaciones pendientes en el nuevo despliegue
+
+Registrar host/plan, commit, fecha, resultado y registros sin claves ni permisos. Usar destinos controlados para redirecciones/DNS, sin consultar servicios privados reales.
 
 | Comprobación | Resultado esperado | Estado |
 | --- | --- | --- |
-| Construcción con las versiones fijadas | Imagen construida; herramientas disponibles | Construcción local completada; ejecución de herramientas y construcción en Render pendientes |
-| Aplicación de `iptables` e `ip6tables` | Reglas instaladas; API inicia solo después | Pendiente |
-| Inicio sin permisos de firewall | API no escucha y muestra el error de protección | Pendiente |
-| Resolver DNS del host | Resolución pública funciona sin abrir el acceso a redes privadas | Pendiente |
-| URL privada y loopback literal | Rechazada antes de crear un trabajo | Pendiente |
-| Dominio con respuesta privada o mixta | Rechazado por la validación inicial | Pendiente |
-| Redirección pública hacia loopback, privada o metadatos | La conexión final queda bloqueada | Pendiente |
-| Cambio DNS después de la validación inicial | La conexión a una dirección privada queda bloqueada | Pendiente |
-| IPv6 privado/reservado y variantes IPv4 mapeadas | Acceso bloqueado | Pendiente |
-| Conexión HTTP/HTTPS pública | Funciona dentro de las reglas | Pendiente |
-| Puertos no permitidos | Conexión bloqueada | Pendiente |
-| Video y audio pequeños | Se procesan y entregan sin agotar la instancia | Pendiente |
-| Trabajo que supera tamaño/tiempo | Termina con error y elimina sus temporales | Pendiente |
-| Archivos terminados ocupando el presupuesto | No se admite un trabajo que excedería el margen | Pendiente |
-| Reinicio durante una descarga | El navegador informa interrupción, no avance antiguo | Pendiente |
+| Construcción de la imagen adaptada | Compilación, checksum, versión y dependencias correctos | Local completada; Render pendiente |
+| Usuario y capacidades | API como node, sin NET_ADMIN ni permisos extra | Configuración presente; ejecución pendiente |
+| Arranque protegido | Seccomp y herramientas disponibles; proxy listo antes de escuchar | Pendiente |
+| Inicio sin seccomp | API no escucha; error de aislamiento | Pendiente |
+| Sockets directos y heredados | IPv4, IPv6, UDP y vías alternativas rechazadas | Pendiente |
+| URL privada, loopback o metadatos | Rechazo antes de conectar | Pendiente |
+| Dominio privado, reservado, mapeado o mixto | Rechazo antes de conectar | Pendiente |
+| Redirección pública a privada | Rechazo por proxy o filtro | Pendiente |
+| Cambio DNS entre validación/conexión | Conecta solo a la IP literal comprobada | Pendiente |
+| Puertos/esquemas no permitidos | Rechazo | Pendiente |
+| HTTP y HTTPS públicos | Transferencia correcta; TLS verificado | Pendiente |
+| Proxy sin permiso o con permiso revocado | Solicitudes rechazadas y conexiones cerradas | Pendiente |
+| FFmpeg | Conversión local correcta; entrada de red bloqueada | Pendiente |
+| Video y audio pequeños | Procesamiento y entrega dentro de recursos | Pendiente |
+| Tamaño, tiempo y espacio temporal | Error y limpieza al exceder límites | Pendiente |
+| Cancelación y reinicio | Cierra conexiones/procesos; permite reintento | Pendiente |
 
-Usar dominios y endpoints de prueba controlados para redirecciones y cambios DNS; no consultar servicios privados reales del proveedor. Este documento define las comprobaciones necesarias, no indica que hayan pasado.
+Los límites de 64 MB por trabajo, 192 MB temporales, 600 segundos y una descarga simultánea requieren medición en el host.
 
-## Decisión de host
+## Siguiente despliegue
 
-- Si Render pasa todas las comprobaciones, registrar los resultados y habilitar el uso personal con los límites medidos.
-- Si rechaza las capacidades o no permite la política DNS/red actual, mantener el error de inicio y evaluar otro host compatible.
-- Si se propone sustituir el firewall por otro mecanismo, actualizar primero el diseño OpenSpec y asegurar control de todas las conexiones, incluidas redirecciones y cambios DNS. No publicar una variante con solo validación inicial.
+1. Publicar los cambios del backend en GitHub.
+2. En Render: **Manual Deploy → Deploy latest commit**, con Docker Command vacío.
+3. Conservar HOST=0.0.0.0, el PORT del host, AUTH_REQUIRED=false, FRONTEND_ORIGINS exacto y /healthz.
+4. Revisar **“Downloader network sandbox and checked internal proxy ready”** y el mensaje de inicio de la API.
+5. Registrar las comprobaciones pendientes y conectar el origen real a API_BASE_URL en Vercel.
+6. Si seccomp también se rechaza, mantener el fallo de arranque y evaluar otro host. Si aparece el error antiguo de firewall, comprobar el commit desplegado.
 
-Referencias: [Docker en Render](https://render.com/docs/docker), [campos admitidos por Blueprints](https://render.com/docs/blueprint-spec), [restricciones del plan gratuito](https://render.com/docs/free).
+Referencias: [Docker en Render](https://render.com/docs/docker), [servicios y puerto](https://render.com/docs/web-services), [plan gratuito](https://render.com/docs/free), [seccomp del kernel Linux](https://docs.kernel.org/userspace-api/seccomp_filter.html), [yt-dlp](https://github.com/yt-dlp/yt-dlp).

@@ -2,7 +2,7 @@
 
 ## Estado
 
-El código está separado en dos proyectos autónomos y dos repositorios Git locales. Todavía no hay remotos Git configurados, servicios creados ni dominios reales. La compatibilidad del backend con Render y el recorrido desplegado completo están pendientes. Ver [HOST-QUALIFICATION.md](HOST-QUALIFICATION.md).
+Ambos repositorios están publicados en GitHub bajo `marianobattaglia`; el usuario confirmó que el frontend ya funciona en Vercel. La primera imagen de Render se construyó, pero su inicio rechazó el firewall. Se adaptó el backend a un proxy interno y un filtro seccomp sin privilegios; su nuevo arranque y el recorrido desplegado siguen pendientes. No se registraron aquí los dominios reales. Ver [HOST-QUALIFICATION.md](HOST-QUALIFICATION.md).
 
 Los proyectos son carpetas hermanas: `video-audio-dl-frontend/` y `video-audio-dl-backend/`. Cada una tiene su propio `.git`, README y configuración. Publicá cada raíz en un remoto distinto con el mismo nombre que su proyecto. La carpeta contenedora conserva OpenSpec y no es un repositorio Git. Podés mantener ambas copias de trabajo en ubicaciones distintas.
 
@@ -21,7 +21,7 @@ Son ejemplos; reemplazalos por los valores reales. No incluyas rutas ni barras f
 ## Orden de publicación
 
 1. Creá dos repositorios remotos vacíos y publicá cada proyecto desde su raíz siguiendo sus respectivos READMEs.
-2. Completá la validación del host Docker del backend, incluidos firewall, resolver DNS, recursos y limpieza. El contenedor abortará si no puede instalar las reglas.
+2. Publicá la adaptación del backend y desplegá el último commit en Render. Conservá Docker y el comando del Dockerfile. Confirmá seccomp y el inicio del proxy interno; el contenedor abortará si no puede instalar la protección. Completá las comprobaciones de DNS, redirecciones, aislamiento, recursos y limpieza.
 3. Configurá el backend con `AUTH_REQUIRED=false`, el origen del frontend y `/healthz`. Solo configurá una clave si activás el control de acceso. Conservá el puerto proporcionado por el host y el entrypoint del Dockerfile.
 4. Importá exclusivamente el repositorio del frontend en Vercel, preset Other, Node 22+, `npm run build`, salida `dist`, `API_BASE_URL` apuntando a la API HTTPS validada.
 5. Confirmá el dominio final del frontend y actualizá la lista exacta de orígenes en el backend.
@@ -61,6 +61,7 @@ Este listado todavía no se ejecutó en los despliegues. No sustituye la validac
 - Construcción de `video-audio-dl-frontend/` desde su propia raíz con un origen HTTPS de ejemplo; genera el sitio y `config.js` sin leer archivos del backend.
 - Revisión de sintaxis de la API, del cliente y de los scripts de construcción/desarrollo.
 - Revisión estática de separación de rutas, configuración pública frente a claves privadas, CORS, autorizaciones, permisos y estados de conexión.
-- Inicialización independiente de Git en ambas raíces. No hay commits, remotos ni publicaciones realizados.
+- Repositorios independientes publicados por el usuario en GitHub; frontend en Vercel según su confirmación.
+- Primer backend en Render: imagen construida; arranque rechazado por el firewall según el log aportado.
 
-La imagen Docker también se construyó localmente tras corregir la configuración prematura de `TMPDIR`; la instalación de certificados finalizó correctamente. No se ejecutaron pruebas automatizadas, el recorrido del navegador, el servicio Docker ni conversiones reales para esa comprobación. Las tareas que dependen de mediciones o despliegues permanecen abiertas en OpenSpec.
+La imagen original se construyó localmente tras corregir TMPDIR. La nueva imagen de proxy y aislamiento también se construyó: C compilado con advertencias tratadas como errores, checksum y versión de yt-dlp, soporte AES y revisión de sintaxis Python. No se ejecutaron pruebas automatizadas ni descargas con esta nueva implementación. Las tareas de medición y despliegue permanecen abiertas en OpenSpec.

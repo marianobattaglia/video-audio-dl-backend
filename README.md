@@ -20,7 +20,7 @@ Revisá los archivos antes de publicar. `.env` no debe aparecer en el commit del
 
 ## Desarrollo local con Docker
 
-Requisitos: Docker Engine con contenedores Linux y Docker Compose v2. El runtime debe permitir `NET_ADMIN`, `SETUID`, `SETGID`, `iptables` e `ip6tables`. El contenedor falla al iniciar si no puede aplicar las restricciones de red.
+Requisitos: Docker Engine con contenedores Linux y Docker Compose v2. El runtime debe permitir filtros seccomp sin privilegios (`no_new_privs`). No se necesita NET_ADMIN, root ni modificar el firewall del host. El contenedor falla al iniciar si no puede instalar el aislamiento del descargador.
 
 1. Copiá `.env.example` a `.env`.
 2. Dejá `AUTH_REQUIRED=false` para acceso abierto. No necesitás definir una clave. Para habilitarla más adelante, usá `AUTH_REQUIRED=true` y configurá `ACCESS_CREDENTIAL` con una clave aleatoria de al menos 24 caracteres, sin espacios. Podés generar una desde Node:
@@ -40,9 +40,22 @@ Requisitos: Docker Engine con contenedores Linux y Docker Compose v2. El runtime
 
 `http://localhost:3000/healthz` devuelve JSON de salud sin exigir clave. La raíz `/` devuelve 404: el backend no sirve la interfaz. El puerto de Compose se publica solo en `127.0.0.1`. Para detenerlo, ejecutá `docker compose down` desde este repositorio.
 
-El contenedor conserva las versiones fijadas en `Dockerfile`: `yt-dlp` 2026.08.19 y `ffmpeg` 7:5.1.9-0+deb12u1. `TMPDIR=/tmp/yt-dlp` permite extraer el ejecutable empaquetado en una ubicación temporal ejecutable.
+El contenedor conserva las versiones fijadas en `Dockerfile`: `yt-dlp` 2026.08.19 y `ffmpeg` 7:5.1.9-0+deb12u1. Usa el wheel oficial con checksum SHA-256, Python y soporte AES. `TMPDIR=/tmp/yt-dlp` contiene el socket interno del proxy y no necesita permiso de ejecución.
 
-Para desarrollo de la API sin Docker, necesitás Node.js 22+, `yt-dlp` y `ffmpeg` en PATH, y establecer `FRONTEND_ORIGINS` en el entorno antes de `npm start`. `AUTH_REQUIRED` vale `false` por defecto; la clave solo es obligatoria al activarlo. Esa modalidad no instala las reglas de red del contenedor: usala únicamente en tu entorno local y no para publicar la API.
+La API requiere Linux, el ejecutable de aislamiento compilado y el adaptador de yt-dlp incluidos en esta imagen. En Windows y macOS, usá Docker también para desarrollo; instalar solo Node, yt-dlp y FFmpeg ya no alcanza para iniciar la API. Los lanzadores originales de terminal siguen disponibles y son independientes de la API.
+
+### Protección de las conexiones
+
+- La API y el proxy comparten la política de esquemas, puertos y direcciones públicas.
+- Cada descargador se inicia bajo seccomp. El filtro bloquea sockets de Internet y se hereda por todos los hijos, incluidos FFmpeg y FFprobe. Antes de ejecutar se cierran los descriptores heredados salvo stdin/stdout/stderr.
+- yt-dlp usa un socket Unix privado para comunicarse con un proxy HTTP interno. No hay un puerto TCP de proxy expuesto.
+- Cada trabajo recibe un permiso aleatorio interno, distinto de la clave del usuario; se revoca y se cierran sus conexiones al terminar, cancelar o superar límites.
+- El proxy comprueba todas las IP del dominio, rechaza direcciones privadas, reservadas, mapeadas o mixtas, conecta a una IP literal validada sin otra resolución y comprueba la dirección efectiva antes de reenviar.
+- Las redirecciones y los segmentos vuelven a pasar por esta protección. HTTPS conserva la validación TLS del sitio, sin interceptar certificados.
+- FFmpeg procesa archivos locales. Se rechazan transmisiones y formatos que requieran descargas directas de FFmpeg. Los plugins, componentes remotos y runtimes JavaScript de yt-dlp están desactivados.
+- El DNS utiliza el resolver normal del host; no necesita excepciones de firewall para Docker DNS.
+
+La API comprueba que puede instalar el filtro y ejecutar las herramientas antes de escuchar. El mensaje de inicio esperado es **“Downloader network sandbox and checked internal proxy ready”**.
 
 ## Configuración
 
@@ -66,9 +79,10 @@ Docker Compose carga `.env`; Node directo y el host leen variables del proceso. 
 | `JOB_CREATE_LIMIT` | `5`; máximo de solicitudes autorizadas de creación por dirección de conexión durante la ventana. |
 | `DOWNLOAD_TMP_DIR` | Carpeta exclusiva para archivos temporales; Docker usa `/tmp/downloads`. Se limpia al iniciar. |
 | `YTDLP_PATH`, `FFMPEG_PATH` | Rutas de herramientas; en Docker `/usr/local/bin/yt-dlp` y `/usr/bin/ffmpeg`. |
-| `TMPDIR` | Docker usa `/tmp/yt-dlp`. |
+| `DOWNLOAD_SANDBOX_PATH` | `/usr/local/bin/download-sandbox`; protección obligatoria, sin modo para omitirla. |
+| `TMPDIR` | Docker usa `/tmp/yt-dlp`, para el socket y temporales auxiliares. |
 
-Compose limita memoria a 512 MB y CPU a 0,1, monta hasta 256 MB de archivos de descarga temporales y 128 MB para el ejecutable. Los valores iniciales son conservadores, **no una capacidad medida ni garantizada de Render**. El muestreo de tamaño cada dos segundos puede exceder momentáneamente los límites y no sustituye las cuotas del host. Los límites y errores eliminan los archivos del trabajo; un reinicio limpia los restantes.
+Compose limita memoria a 512 MB y CPU a 0,1, monta hasta 256 MB de archivos de descarga temporales y 16 MB para el socket y temporales auxiliares. Los valores iniciales son conservadores, **no una capacidad medida ni garantizada de Render**. El muestreo de tamaño cada dos segundos puede exceder momentáneamente los límites y no sustituye las cuotas del host. Los límites y errores eliminan los archivos del trabajo; un reinicio limpia los restantes.
 
 Se limita por la dirección del socket, sin confiar en cabeceras `X-Forwarded-For` de origen desconocido. Detrás de un proxy del host, varios usuarios pueden compartir un límite. Es aceptable para el uso personal previsto; ajustar valores requiere observar el despliegue real.
 
@@ -89,9 +103,9 @@ El permiso se consume antes de iniciar la entrega; se invalida al expirar, cance
 
 ## Candidato de despliegue: Render Free
 
-**Compatibilidad pendiente.** `render.yaml` prepara un Web Service Docker gratuito, con despliegue automático desactivado, salud en `/healthz` y acceso abierto (`AUTH_REQUIRED=false`). No demuestra que Render permita las capacidades Linux que exige el firewall.
+**Compatibilidad pendiente.** `render.yaml` prepara un Web Service Docker gratuito, con despliegue automático desactivado, salud en `/healthz` y acceso abierto (`AUTH_REQUIRED=false`). El primer despliegue construyó correctamente la imagen pero falló en el firewall; el usuario autorizó la adaptación a un proxy interno y un filtro seccomp sin privilegios. Su nuevo arranque y las descargas en Render siguen pendientes.
 
-Antes de habilitar uso público, completá [HOST-QUALIFICATION.md](HOST-QUALIFICATION.md). No cambies el entrypoint ni quites reglas para hacer arrancar el servicio. Si el host no permite el mecanismo actual, necesita evaluarse otro host compatible o un cambio de diseño explícito que preserve la protección de todas las conexiones.
+Registrá el nuevo arranque y las comprobaciones pendientes en [HOST-QUALIFICATION.md](HOST-QUALIFICATION.md). Si Render rechaza seccomp, la API se detendrá antes de escuchar; no existe una alternativa automática sin protección.
 
 Configuración desde Render, una vez acordada la evaluación:
 
@@ -99,7 +113,7 @@ Configuración desde Render, una vez acordada la evaluación:
 2. Conservá el `ENTRYPOINT` y `CMD` del Dockerfile. Render proporciona `PORT`; el servidor lo lee. No sobrescribas el comando para saltar el entrypoint.
 3. Configurá `FRONTEND_ORIGINS` como variable de runtime. `AUTH_REQUIRED=false` permite acceso abierto; si decidís activarlo, configurá `AUTH_REQUIRED=true` y una `ACCESS_CREDENTIAL` privada. No declares la clave como `ARG` del Dockerfile.
 4. Configurá `/healthz` como ruta de salud. El Dockerfile incluye también su health check; en Render prima el mecanismo de salud de la plataforma.
-5. Revisá los registros de inicio. Si aparece **“Cannot enforce outbound destination restrictions”**, el candidato no está habilitado para este backend.
+5. Revisá los registros de inicio. Si aparece **“Cannot install downloader network sandbox”**, el host no permite el aislamiento. Si aparece el error antiguo **“Cannot enforce outbound destination restrictions”**, revisá que se haya desplegado el commit nuevo.
 6. Con validación completa, copiá el origen HTTPS del servicio a `API_BASE_URL` en Vercel. Configurá `FRONTEND_ORIGINS` con el origen exacto de la publicación del frontend y repetí la comprobación de conexión.
 
 Render Free duerme después de 15 minutos sin tráfico entrante; despertar puede demorar alrededor de un minuto. Los archivos locales y trabajos en memoria pueden perderse al dormir, reiniciar o desplegar. Hay cuotas de horas, ancho de banda y construcción. No hay disco persistente en el plan gratuito. La aplicación está preparada para informar esperas e interrupciones, pero no puede asegurar disponibilidad continua ni que cualquier video quepa en los recursos gratuitos. [Límites del plan gratuito](https://render.com/docs/free).

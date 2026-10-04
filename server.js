@@ -5,10 +5,10 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
-const net = require("node:net");
-const dns = require("node:dns/promises");
 const { spawn, spawnSync } = require("node:child_process");
 const { randomUUID, randomBytes, createHash, timingSafeEqual } = require("node:crypto");
+const { publicWebUrl, resolvePublicHost } = require("./network-policy");
+const { createEgressProxy } = require("./egress-proxy");
 
 const PORT = integerEnv("PORT", 3000, 1, 65535);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -35,8 +35,9 @@ for (const origin of allowedOrigins) {
   }
 }
 const TEMP_ROOT = path.resolve(process.env.DOWNLOAD_TMP_DIR || path.join(os.tmpdir(), "video-audio-dl"));
-const YTDLP = process.env.YTDLP_PATH || "yt-dlp";
-const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
+const YTDLP = process.env.YTDLP_PATH || "/usr/local/bin/yt-dlp";
+const FFMPEG = process.env.FFMPEG_PATH || "/usr/bin/ffmpeg";
+const SANDBOX = process.env.DOWNLOAD_SANDBOX_PATH || "/usr/local/bin/download-sandbox";
 const jobs = new Map();
 const activeJobs = new Set();
 const tickets = new Map();
@@ -44,6 +45,7 @@ const authFailures = new Map();
 const jobAttempts = new Map();
 let pendingJobs = 0;
 let server;
+let egressProxy;
 
 function booleanEnv(name, fallback) {
   const raw = process.env[name];
@@ -63,91 +65,11 @@ function integerEnv(name, fallback, min, max) {
   return value;
 }
 
-function matchesCidr(bytes, network, prefix) {
-  const whole = Math.floor(prefix / 8);
-  const remainder = prefix % 8;
-  for (let i = 0; i < whole; i += 1) if (bytes[i] !== (network[i] || 0)) return false;
-  if (!remainder) return true;
-  const mask = (0xff << (8 - remainder)) & 0xff;
-  return (bytes[whole] & mask) === ((network[whole] || 0) & mask);
-}
-
-function ipv4Bytes(address) {
-  return address.split(".").map(Number);
-}
-
-function parseIPv6(address) {
-  if (address.includes("%")) return null;
-  let source = address.toLowerCase();
-  if (source.includes(".")) {
-    const lastColon = source.lastIndexOf(":");
-    const v4 = ipv4Bytes(source.slice(lastColon + 1));
-    source = `${source.slice(0, lastColon)}:${((v4[0] << 8) | v4[1]).toString(16)}:${((v4[2] << 8) | v4[3]).toString(16)}`;
-  }
-  const halves = source.split("::");
-  if (halves.length > 2) return null;
-  const left = halves[0] ? halves[0].split(":") : [];
-  const right = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
-  const missing = 8 - left.length - right.length;
-  if ((halves.length === 1 && missing !== 0) || (halves.length === 2 && missing < 1)) return null;
-  const groups = [...left, ...Array(missing).fill("0"), ...right];
-  if (groups.length !== 8 || groups.some((part) => !/^[0-9a-f]{1,4}$/.test(part))) return null;
-  return groups.flatMap((part) => {
-    const value = parseInt(part, 16);
-    return [value >> 8, value & 0xff];
-  });
-}
-
-function isPublicIp(address) {
-  const version = net.isIP(address);
-  if (version === 4) {
-    const b = ipv4Bytes(address);
-    const blocked = [
-      [[0, 0, 0, 0], 8], [[10, 0, 0, 0], 8], [[100, 64, 0, 0], 10],
-      [[127, 0, 0, 0], 8], [[169, 254, 0, 0], 16], [[172, 16, 0, 0], 12],
-      [[192, 0, 0, 0], 24], [[192, 0, 2, 0], 24], [[192, 88, 99, 0], 24],
-      [[192, 168, 0, 0], 16], [[198, 18, 0, 0], 15], [[198, 51, 100, 0], 24],
-      [[203, 0, 113, 0], 24], [[224, 0, 0, 0], 4], [[240, 0, 0, 0], 4]
-    ];
-    return !blocked.some(([network, prefix]) => matchesCidr(b, network, prefix));
-  }
-  if (version === 6) {
-    const b = parseIPv6(address);
-    if (!b) return false;
-    const mapped = b.slice(0, 10).every((byte) => byte === 0) && b[10] === 255 && b[11] === 255;
-    if (mapped) return isPublicIp(b.slice(12).join("."));
-    const isGlobalUnicast = (b[0] & 0xe0) === 0x20;
-    if (!isGlobalUnicast) return false;
-    const blocked = [
-      [[0x20, 0x01, 0x00, 0x00], 23], [[0x20, 0x01, 0x0d, 0xb8], 32],
-      [[0x20, 0x02, 0x00, 0x00], 16], [[0x3f, 0xff, 0x00, 0x00], 20],
-      [[0x00, 0x64, 0xff, 0x9b], 96], [[0x00, 0x64, 0xff, 0x9b, 0x00, 0x01], 48]
-    ];
-    return !blocked.some(([network, prefix]) => matchesCidr(b, network, prefix));
-  }
-  return false;
-}
-
 async function validateUrl(value) {
   if (typeof value !== "string" || value.length > 4096) throw userError("Pega una URL válida de hasta 4096 caracteres.");
   let url;
-  try { url = new URL(value); } catch { throw userError("La URL no tiene un formato válido."); }
-  if (!["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password) {
-    throw userError("Usa una URL pública HTTP o HTTPS sin credenciales embebidas.");
-  }
-  const expectedPort = url.protocol === "https:" ? "443" : "80";
-  if (url.port && url.port !== expectedPort) throw userError("Por seguridad, solo se permiten los puertos HTTP 80 y HTTPS 443.");
-  const hostname = url.hostname.replace(/^\[|\]$/g, "");
-  const literalVersion = net.isIP(hostname);
-  let addresses;
-  try {
-    addresses = literalVersion ? [{ address: hostname }] : await dns.lookup(hostname, { all: true, verbatim: true });
-  } catch {
-    throw userError("No se pudo resolver el dominio de esa URL.");
-  }
-  if (!addresses.length || addresses.some(({ address }) => !isPublicIp(address))) {
-    throw userError("Solo se permiten direcciones públicas de Internet.");
-  }
+  try { url = publicWebUrl(value); } catch { throw userError("Usa una URL pública HTTP o HTTPS en los puertos 80/443, sin credenciales embebidas."); }
+  try { await resolvePublicHost(url.hostname); } catch { throw userError("Solo se permiten dominios resolubles y direcciones públicas de Internet."); }
   return url.href;
 }
 
@@ -287,6 +209,7 @@ async function directoryBytes(directory) {
 }
 
 async function removeJobFiles(job) {
+  job.egressSession?.close();
   if (job.timer) clearTimeout(job.timer);
   if (job.sizeTimer) clearInterval(job.sizeTimer);
   for (const [token, ticket] of tickets) if (ticket.jobId === job.id) tickets.delete(token);
@@ -311,22 +234,31 @@ function runDownload(job, url) {
     "--extractor-args", "youtube:player_client=android",
     "--progress-template", "download:DL_PROGRESS:%(progress.percent)s:%(progress.eta)s",
     "--print", "after_move:APP_OUTPUT:%(filepath)s",
-    "--restrict-filenames", "--remux-video", "mp4", "-o", outputTemplate
+    "--restrict-filenames", "--remux-video", "mp4", "--ffmpeg-location", FFMPEG,
+    "--postprocessor-args", "ffmpeg_i:-protocol_whitelist file,pipe,crypto,data,concat", "-o", outputTemplate
   ];
   if (job.kind === "video") {
     args.push("-f", "bv*+ba/b", "--merge-output-format", "mp4");
   } else {
-    args.push("-x", "--audio-format", "mp3", "--audio-quality", "0", "--ffmpeg-location", FFMPEG);
+    args.push("-x", "--audio-format", "mp3", "--audio-quality", "0");
   }
   args.push(url);
 
-  const child = spawn(YTDLP, args, { cwd: job.directory, shell: false, windowsHide: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+  const session = egressProxy.createSession();
+  job.egressSession = session;
+  const env = {
+    PATH: "/usr/local/bin:/usr/bin:/bin", HOME: job.directory,
+    TMPDIR: process.env.TMPDIR || os.tmpdir(), LANG: "C.UTF-8",
+    PYTHONDONTWRITEBYTECODE: "1", ...session.env
+  };
+  const child = spawn(SANDBOX, [YTDLP, ...args], { cwd: job.directory, env, shell: false, windowsHide: true, detached: true, stdio: ["ignore", "pipe", "pipe"] });
   job.child = child;
   job.status = "running";
   job.message = "Conectando con el sitio…";
   activeJobs.add(job.id);
   job.timer = setTimeout(() => {
     job.timedOut = true;
+    session.close();
     signalDownload(child, "SIGTERM");
     setTimeout(() => signalDownload(child, "SIGKILL"), 2000).unref();
   }, MAX_DURATION_MS);
@@ -334,6 +266,7 @@ function runDownload(job, url) {
     try {
       if (await directoryBytes(job.directory) > MAX_OUTPUT_BYTES || await directoryBytes(TEMP_ROOT) > MAX_TEMP_BYTES) {
         job.tooLarge = true;
+        session.close();
         signalDownload(child, "SIGTERM");
         setTimeout(() => signalDownload(child, "SIGKILL"), 2000).unref();
       }
@@ -355,12 +288,14 @@ function runDownload(job, url) {
   });
 
   child.on("error", async () => {
+    session.close();
     activeJobs.delete(job.id);
     job.status = "failed";
     job.message = `No se pudo iniciar el servicio de descarga. Comprueba que ${path.basename(YTDLP)} esté instalado en el servidor.`;
     await removeJobFiles(job);
   });
   child.on("close", async (code) => {
+    session.close();
     activeJobs.delete(job.id);
     job.child = null;
     if (job.timer) clearTimeout(job.timer);
@@ -552,8 +487,11 @@ function cleanExpiredJobs() {
 }
 
 function assertToolsAvailable() {
+  if (process.platform !== "linux") throw new Error("The API download sandbox requires Linux. Run the backend with Docker.");
+  const check = spawnSync(SANDBOX, ["--check"], { encoding: "utf8", timeout: 10000 });
+  if (check.error || check.status !== 0) throw new Error(`Cannot install downloader network sandbox: ${check.stderr || check.error?.message || "unsupported host"}`);
   for (const [binary, args] of [[YTDLP, ["--version"]], [FFMPEG, ["-version"]]]) {
-    const result = spawnSync(binary, args, { encoding: "utf8", timeout: 10000, windowsHide: true });
+    const result = spawnSync(SANDBOX, [binary, ...args], { encoding: "utf8", timeout: 10000, windowsHide: true });
     if (result.error || result.status !== 0) throw new Error(`Required server tool unavailable: ${path.basename(binary)}`);
   }
 }
@@ -561,6 +499,8 @@ function assertToolsAvailable() {
 async function main() {
   assertToolsAvailable();
   await cleanStaleFiles();
+  egressProxy = await createEgressProxy(path.join(process.env.TMPDIR || os.tmpdir(), "video-audio-dl-proxy"));
+  process.stdout.write("Downloader network sandbox and checked internal proxy ready\n");
   server = http.createServer((req, res) => {
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "no-referrer");
@@ -581,6 +521,7 @@ async function main() {
 
 main().catch((error) => {
   process.stderr.write(`${error.message}\n`);
+  egressProxy?.close();
   process.exitCode = 1;
 });
 
@@ -591,6 +532,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
       signalDownload(child, "SIGTERM");
       setTimeout(() => signalDownload(child, "SIGKILL"), 1500).unref();
     }
+    egressProxy?.close();
     server?.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   });
