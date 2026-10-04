@@ -1,0 +1,30 @@
+# Candidate configuration only. Qualify egress enforcement before public use.
+# Render must support the existing NET_ADMIN firewall; startup fails otherwise.
+services:
+  - type: web
+    name: video-audio-dl-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: "off"
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: AUTH_REQUIRED
+        value: "false"
+      # To enable access control later, set AUTH_REQUIRED=true and add a private
+      # ACCESS_CREDENTIAL in the service environment (never a Docker build ARG).
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: MAX_CONCURRENT_DOWNLOADS
+        value: "1"
+      - key: MAX_DOWNLOAD_SECONDS
+        value: "600"
+      - key: JOB_TTL_SECONDS
+        value: "300"
+      - key: MAX_OUTPUT_MB
+        value: "64"
+      - key: MAX_TEMP_MB
+        value: "192"

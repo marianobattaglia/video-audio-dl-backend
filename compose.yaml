@@ -1,0 +1,33 @@
+services:
+  video-audio-dl:
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:3000:3000"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp/downloads:rw,noexec,nosuid,nodev,size=256m,uid=1000,gid=1000
+      - /tmp/yt-dlp:rw,exec,nosuid,nodev,size=128m,uid=1000,gid=1000
+      - /run:rw,noexec,nosuid,nodev,size=16m,mode=755
+    mem_limit: 512m
+    cpus: 0.1
+    environment:
+      PORT: 3000
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
+      ACCESS_CREDENTIAL: ${ACCESS_CREDENTIAL:-}
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:5173}
+      MAX_CONCURRENT_DOWNLOADS: 1
+      MAX_DOWNLOAD_SECONDS: 600
+      JOB_TTL_SECONDS: 300
+      MAX_OUTPUT_MB: 64
+      MAX_TEMP_MB: 192
+      TMPDIR: /tmp/yt-dlp

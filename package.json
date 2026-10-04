@@ -1,0 +1,12 @@
+{
+  "name": "video-audio-dl-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone Docker API for yt-dlp video and audio downloads",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
