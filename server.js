@@ -226,10 +226,41 @@ function signalDownload(child, signal) {
   }
 }
 
+function downloadFailure(diagnostics) {
+  // Suggestions and warnings can mention cookies even when login is unrelated.
+  const errors = diagnostics.split(/\r?\n/).filter((line) => /^\s*ERROR:/i.test(line)).join("\n");
+  if (/confirm.*(?:not a bot|not.*robot)|automated (?:requests|traffic)/i.test(errors)) {
+    return {
+      reason: "source_bot_check",
+      message: "El sitio bloqueó la descarga desde el servidor con una verificación antibot. El enlace puede funcionar en tu navegador y aun así fallar aquí."
+    };
+  }
+  if (/login required|authentication required|sign[ -]?in (?:is )?required|sign in to confirm your age|only available (?:for|to) registered users|private video|members.only/i.test(errors)) {
+    return {
+      reason: "source_login_required",
+      message: "Este contenido requiere iniciar sesión en el sitio de origen. Ese tipo de enlace no está disponible en esta app."
+    };
+  }
+  return {
+    reason: "download_failed",
+    message: "No se pudo descargar esa URL. Comprueba el enlace o prueba con otro sitio compatible."
+  };
+}
+
+function logDownloadFailure(job, code, reason) {
+  let diagnostics = job.diagnostics;
+  if (ACCESS_CREDENTIAL) diagnostics = diagnostics.split(ACCESS_CREDENTIAL).join("[redacted]");
+  // Keep signed source URLs and internal proxy credentials out of host logs.
+  diagnostics = diagnostics.replace(/https?:\/\/[^\s<>"']+/gi, "[url]")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .slice(-6000);
+  process.stderr.write(`${JSON.stringify({ event: "download_failed", jobId: job.id, kind: job.kind, exitCode: code, reason, diagnostics })}\n`);
+}
+
 function runDownload(job, url) {
   const outputTemplate = path.join(job.directory, "%(title).120B [%(id)s].%(ext)s");
   const args = [
-    "--ignore-config", "--no-color", "--no-warnings", "--newline", "--no-playlist",
+    "--ignore-config", "--no-color", "--newline", "--no-playlist",
     "--max-filesize", String(MAX_OUTPUT_BYTES),
     "--extractor-args", "youtube:player_client=android",
     "--progress-template", "download:DL_PROGRESS:%(progress.percent)s:%(progress.eta)s",
@@ -334,9 +365,9 @@ function runDownload(job, url) {
       }
     } else {
       job.status = "failed";
-      job.message = /sign in to confirm|cookies/i.test(job.diagnostics)
-        ? "Este sitio requiere autenticación o cookies del navegador. Ese tipo de enlace no está disponible en esta app."
-        : "No se pudo descargar esa URL. Comprueba el enlace o prueba con otro sitio compatible.";
+      const failure = downloadFailure(job.diagnostics);
+      job.message = failure.message;
+      logDownloadFailure(job, code, failure.reason);
     }
     if (job.status === "failed") await removeJobFiles(job);
   });

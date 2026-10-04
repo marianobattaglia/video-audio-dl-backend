@@ -2,7 +2,7 @@
 
 ## Estado
 
-Ambos repositorios están publicados en GitHub bajo `marianobattaglia`; el usuario confirmó que el frontend ya funciona en Vercel. La primera imagen de Render se construyó, pero su inicio rechazó el firewall. Se adaptó el backend a un proxy interno y un filtro seccomp sin privilegios; su nuevo arranque y el recorrido desplegado siguen pendientes. No se registraron aquí los dominios reales. Ver [HOST-QUALIFICATION.md](HOST-QUALIFICATION.md).
+Ambos repositorios están publicados en GitHub bajo `marianobattaglia`. El frontend está en `https://video-audio-dl.vercel.app` y el backend en `https://video-audio-dl-backend.onrender.com`. El backend adaptado responde a `/healthz` con `status: "ok"` y `authRequired: false`. El usuario reportó que el enlace de YouTube `bzhObFFhXiw`, que funcionaba localmente, falla en el despliegue con el mensaje genérico de cookies. La causa original todavía no está confirmada y el recorrido completo sigue pendiente. Ver [HOST-QUALIFICATION.md](HOST-QUALIFICATION.md).
 
 Los proyectos son carpetas hermanas: `video-audio-dl-frontend/` y `video-audio-dl-backend/`. Cada una tiene su propio `.git`, README y configuración. Publicá cada raíz en un remoto distinto con el mismo nombre que su proyecto. La carpeta contenedora conserva OpenSpec y no es un repositorio Git. Podés mantener ambas copias de trabajo en ubicaciones distintas.
 
@@ -11,10 +11,18 @@ Los proyectos son carpetas hermanas: `video-audio-dl-frontend/` y `video-audio-d
 | Entorno | Frontend: `API_BASE_URL` | Backend: `FRONTEND_ORIGINS` |
 | --- | --- | --- |
 | Local | `http://localhost:3000` mediante `npm run dev` | `http://localhost:5173` |
-| Producción | `https://TU_BACKEND.onrender.com` o el origen del host validado | `https://TU_FRONTEND.vercel.app` o tu dominio final |
+| Producción | `https://video-audio-dl-backend.onrender.com` | `https://video-audio-dl.vercel.app` |
 | Preview | Origen HTTPS de una API de pruebas | Origen exacto de ese preview o dominio estable de pruebas |
 
-Son ejemplos; reemplazalos por los valores reales. No incluyas rutas ni barras finales. En el backend, separá varios orígenes con comas. Si cambiás un dominio, ajustá ambos lados. No uses wildcards para previews.
+La fila de producción registra los dominios actuales; la de preview es un ejemplo. No incluyas rutas ni barras finales. En el backend, separá varios orígenes con comas. Si cambiás un dominio, ajustá ambos lados. No uses wildcards para previews.
+
+## Diagnóstico de descargas de YouTube
+
+El cliente consulta el sitio de origen desde Render, cuya IP es distinta de la conexión local. Que un enlace funcione localmente no confirma que YouTube permita la descarga desde el host. La configuración actual fuerza el cliente Android, no incorpora `yt-dlp-ejs` y desactiva runtimes JavaScript; también puede tener límites de compatibilidad. No se determinó cuál de estas causas afecta al enlace reportado.
+
+El backend registra los fallos del descargador como una línea JSON con `event: "download_failed"`, el identificador del trabajo, `exitCode`, `reason` y `diagnostics`. Los diagnósticos están acotados, con URLs y la clave de acceso eliminadas; no se envían al navegador. Las advertencias se conservan para identificar dependencias o formatos faltantes. El mensaje visible distingue una verificación antibot explícita de un pedido explícito de inicio de sesión; una mera mención de cookies no se toma como prueba de autenticación.
+
+Para obtener la causa: publicar esta revisión del backend, usar **Manual Deploy → Deploy latest commit**, repetir una vez la descarga y buscar `download_failed` en los logs de Render. Registrar el error y las advertencias antes de modificar clientes, dependencias o hosting. Este cambio mejora el diagnóstico y el mensaje; no elimina bloqueos del sitio de origen. Las modificaciones de JavaScript requieren revisar la decisión de aislamiento documentada en OpenSpec.
 
 `AUTH_REQUIRED=false` deja acceso abierto por defecto. Para exigir clave más adelante, usá `AUTH_REQUIRED=true` y configurá `ACCESS_CREDENTIAL` exclusivamente en el runtime del backend; la interfaz la pedirá al conocer ese modo en `/healthz`. La clave no es necesaria y se ignora con la función apagada. `API_BASE_URL` es público y se incorpora a la construcción estática del frontend. Nunca publiques `.env` ni pongas la clave en Vercel.
 

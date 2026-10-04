@@ -11,7 +11,9 @@ Exited with status 1
 
 El resultado rechaza el mecanismo anterior en esta instancia. El usuario autorizó sustituirlo por un proxy interno y un aislamiento seccomp sin privilegios.
 
-La nueva imagen se construyó localmente: C compilado con advertencias tratadas como errores, checksum y versión del wheel oficial de yt-dlp comprobados, soporte AES presente y sintaxis Python revisada. **Su arranque y sus descargas en Render todavía están pendientes.** No se ejecutaron pruebas automatizadas ni descargas con esta implementación. La tarea 3.2 permanece abierta.
+La nueva imagen se construyó localmente: C compilado con advertencias tratadas como errores, checksum y versión del wheel oficial de yt-dlp comprobados, soporte AES presente y sintaxis Python revisada. El usuario aportó luego logs de construcción correcta en Render y confirmó ambos despliegues. La consulta pública a `https://video-audio-dl-backend.onrender.com/healthz` devolvió `{"status":"ok","activeDownloads":0,"authRequired":false}`. Esto confirma disponibilidad de la API; no completa la validación de todas las restricciones ni confirma una transferencia.
+
+El enlace de YouTube `bzhObFFhXiw`, previamente funcional en local según el usuario, falla en Render con el mensaje genérico de cookies. No se capturó aún el diagnóstico original de yt-dlp. Se preparó registro acotado de fallos y clasificación del mensaje antibot para el siguiente despliegue. No se ejecutaron pruebas automatizadas ni se repitieron descargas desde el agente. La tarea 3.2 permanece abierta.
 
 ## Protección implementada
 
@@ -36,9 +38,9 @@ Registrar host/plan, commit, fecha, resultado y registros sin claves ni permisos
 
 | Comprobación | Resultado esperado | Estado |
 | --- | --- | --- |
-| Construcción de la imagen adaptada | Compilación, checksum, versión y dependencias correctos | Local completada; Render pendiente |
+| Construcción de la imagen adaptada | Compilación, checksum, versión y dependencias correctos | Local completada; construcción Render confirmada por logs del usuario |
 | Usuario y capacidades | API como node, sin NET_ADMIN ni permisos extra | Configuración presente; ejecución pendiente |
-| Arranque protegido | Seccomp y herramientas disponibles; proxy listo antes de escuchar | Pendiente |
+| Arranque protegido | Seccomp y herramientas disponibles; proxy listo antes de escuchar | API disponible por salud; registro de inicio y commit pendientes |
 | Inicio sin seccomp | API no escucha; error de aislamiento | Pendiente |
 | Sockets directos y heredados | IPv4, IPv6, UDP y vías alternativas rechazadas | Pendiente |
 | URL privada, loopback o metadatos | Rechazo antes de conectar | Pendiente |
