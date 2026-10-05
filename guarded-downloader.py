@@ -6,6 +6,7 @@ by yt-dlp against the original server name, with no TLS interception.
 """
 
 import errno
+import importlib.util
 import os
 import socket
 import ssl  # Load SSLSocket against the real socket class before adapting it.
@@ -78,8 +79,12 @@ os.environ["no_proxy"] = ""
 from yt_dlp import main
 
 if "--cookies" in sys.argv[1:]:
-    from private_cookie_policy import install_policy
-    install_policy()
+    # Python -I excludes /app from module lookup. Load this trusted file by
+    # its fixed path, without adding the working directory to sys.path.
+    policy_spec = importlib.util.spec_from_file_location("private_cookie_policy", "/app/private_cookie_policy.py")
+    policy_module = importlib.util.module_from_spec(policy_spec)
+    policy_spec.loader.exec_module(policy_module)
+    policy_module.install_policy()
 
 main([
     "--ignore-config", "--no-plugin-dirs", "--no-js-runtimes", "--no-remote-components",

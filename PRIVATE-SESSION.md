@@ -73,6 +73,8 @@ Los motivos públicos distinguen errores conocidos de acceso HTTP, formato, regi
 
 Nunca habilitar stderr/stdout crudos para depurar con cookies reales. No se publica texto capturado, títulos, URLs, cookies, cabeceras, rutas privadas ni mensajes de excepciones. Para continuar un diagnóstico, compartir solamente el registro estructurado del trabajo que falló.
 
+El launcher conserva Python `-I -B`. La política de cookies se carga por la ruta fija `/app/private_cookie_policy.py` con `importlib`, porque el modo aislado excluye el directorio del script de la búsqueda de módulos. No se añade el directorio del trabajo ni se usa `PYTHONPATH` para resolver ese módulo.
+
 ## Prueba local opcional
 
 Usar un archivo externo ficticio o una sesión explícitamente autorizada; las pruebas automatizadas ya generan fixtures sin datos personales. Para montar una fuente local, crear **fuera del repo** un override de Compose como este ejemplo y reemplazar solamente la ruta ficticia por una ruta absoluta externa:
