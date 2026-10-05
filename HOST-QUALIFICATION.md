@@ -13,7 +13,9 @@ El resultado rechaza el mecanismo anterior en esta instancia. El usuario autoriz
 
 La nueva imagen se construyó localmente: C compilado con advertencias tratadas como errores, checksum y versión del wheel oficial de yt-dlp comprobados, soporte AES presente y sintaxis Python revisada. El usuario aportó luego logs de construcción correcta en Render y confirmó ambos despliegues. La consulta pública a `https://video-audio-dl-backend.onrender.com/healthz` devolvió `{"status":"ok","activeDownloads":0,"authRequired":false}`. Esto confirma disponibilidad de la API; no completa la validación de todas las restricciones ni confirma una transferencia.
 
-El enlace de YouTube `bzhObFFhXiw`, previamente funcional en local según el usuario, falla en Render con el mensaje genérico de cookies. No se capturó aún el diagnóstico original de yt-dlp. Se preparó registro acotado de fallos y clasificación del mensaje antibot para el siguiente despliegue. No se ejecutaron pruebas automatizadas ni se repitieron descargas desde el agente. La tarea 3.2 permanece abierta.
+El enlace de YouTube `bzhObFFhXiw`, previamente funcional en local según el usuario, falla en Render. Tras desplegar el registro acotado de fallos, el usuario aportó `exitCode: 1`, `reason: "source_bot_check"` y `ERROR: [youtube] bzhObFFhXiw: Sign in to confirm you’re not a bot`, además de una advertencia de metadatos incompletos. Se confirma rechazo antibot durante la extracción. No se confirmó una transferencia, ni que cambiar dependencias pueda resolver el rechazo. No se ejecutaron pruebas automatizadas ni se repitieron descargas desde el agente. La tarea 3.2 permanece abierta.
+
+El usuario autorizó el ajuste de compatibilidad con nightly/EJS/Node. Se construyó localmente `video-audio-dl-backend:youtube-ejs` con yt-dlp `2026.9.27.232945.dev0` y EJS `0.8.0`: ambos SHA-256 correctos, versiones compatibles, assets del solver y parsing Python comprobados durante la construcción. La nueva revisión todavía no se publicó ni ejecutó en Render desde el agente, y no se ejecutaron descargas ni pruebas automatizadas. La construcción completa la preparación de la imagen, no la validación de ejecución del solver bajo el aislamiento.
 
 ## Protección implementada
 
@@ -21,7 +23,7 @@ El enlace de YouTube `bzhObFFhXiw`, previamente funcional en local según el usu
 2. Antes de escuchar, comprueba que seccomp puede instalarse con no_new_privs y que las herramientas se ejecutan bajo el filtro.
 3. Cada descargador instala el filtro antes de yt-dlp. Solo permite sockets Unix; bloquea sockets de Internet y otros dominios de sockets, io_uring, ptrace, acceso a memoria de otros procesos y obtención de sus descriptores. Comprueba la arquitectura y rechaza ABI alternativos.
 4. Cierra previamente los descriptores heredados, salvo stdin/stdout/stderr. El filtro se hereda por fork/exec, incluyendo FFmpeg y FFprobe; no hay una opción para omitirlo.
-5. El adaptador dirige el proxy HTTP de yt-dlp por un socket Unix privado con permiso aleatorio por trabajo. No se expone ningún puerto TCP de proxy. Plugins, JavaScript y componentes remotos están desactivados.
+5. El adaptador dirige el proxy HTTP de yt-dlp por un socket Unix privado con permiso aleatorio por trabajo. No se expone ningún puerto TCP de proxy. Plugins externos y componentes remotos están desactivados. El ajuste aprobado instala EJS compatible local y habilita solo Node, que hereda seccomp y las restricciones de permisos del proveedor oficial de yt-dlp. La API exige Node y EJS al iniciar; no hay descarga de solver remoto ni cliente Android forzado.
 6. El proxy comprueba todas las IP de cada nuevo destino y rechaza IP privadas, reservadas, mapeadas o respuestas mixtas. Conecta a una IP literal comprobada sin segunda resolución y comprueba la dirección efectiva.
 7. HTTP usa puerto 80 y HTTPS usa CONNECT a 443. Las redirecciones y segmentos requieren nuevas comprobaciones. TLS sigue verificándose en yt-dlp contra el sitio original, sin interceptar certificados.
 8. Se limita la espera DNS/conexión y se revoca el permiso y sus conexiones al finalizar, cancelar, superar los límites o apagar la API.
@@ -30,7 +32,7 @@ La seguridad no depende exclusivamente de validar la URL inicial ni de que cada 
 
 ## Compatibilidad
 
-El descargador nativo transfiere HTTP/HTTPS y FFmpeg une, convierte y remuxea archivos locales. Las rutas que necesitan descarga directa de FFmpeg, otros protocolos, plugins o runtimes externos se rechazan. No se promete compatibilidad con todos los sitios o transmisiones en vivo. Los lanzadores originales de terminal permanecen separados de la API.
+El descargador nativo transfiere HTTP/HTTPS y FFmpeg une, convierte y remuxea archivos locales. EJS ejecuta el solver local con Node bajo el filtro heredado. Las rutas que necesitan descarga directa de FFmpeg, otros protocolos, plugins o runtimes distintos de Node se rechazan. No se promete compatibilidad con todos los sitios o transmisiones en vivo ni desbloquear la IP del host. Los lanzadores originales de terminal permanecen separados de la API.
 
 ## Comprobaciones pendientes en el nuevo despliegue
 
@@ -43,6 +45,7 @@ Registrar host/plan, commit, fecha, resultado y registros sin claves ni permisos
 | Arranque protegido | Seccomp y herramientas disponibles; proxy listo antes de escuchar | API disponible por salud; registro de inicio y commit pendientes |
 | Inicio sin seccomp | API no escucha; error de aislamiento | Pendiente |
 | Sockets directos y heredados | IPv4, IPv6, UDP y vías alternativas rechazadas | Pendiente |
+| EJS y Node | Assets locales compatibles; solver ejecuta bajo seccomp sin sockets de Internet ni componentes remotos | Implementación presente; ejecución pendiente |
 | URL privada, loopback o metadatos | Rechazo antes de conectar | Pendiente |
 | Dominio privado, reservado, mapeado o mixto | Rechazo antes de conectar | Pendiente |
 | Redirección pública a privada | Rechazo por proxy o filtro | Pendiente |

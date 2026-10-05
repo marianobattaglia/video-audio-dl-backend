@@ -40,22 +40,22 @@ Requisitos: Docker Engine con contenedores Linux y Docker Compose v2. El runtime
 
 `http://localhost:3000/healthz` devuelve JSON de salud sin exigir clave. La raíz `/` devuelve 404: el backend no sirve la interfaz. El puerto de Compose se publica solo en `127.0.0.1`. Para detenerlo, ejecutá `docker compose down` desde este repositorio.
 
-El contenedor conserva las versiones fijadas en `Dockerfile`: `yt-dlp` 2026.08.19 y `ffmpeg` 7:5.1.9-0+deb12u1. Usa el wheel oficial con checksum SHA-256, Python y soporte AES. `TMPDIR=/tmp/yt-dlp` contiene el socket interno del proxy y no necesita permiso de ejecución.
+El contenedor fija en `Dockerfile` la nightly oficial `yt-dlp` 2026.9.27.232945.dev0, su dependencia exacta `yt-dlp-ejs` 0.8.0 y `ffmpeg` 7:5.1.9-0+deb12u1. Ambos wheels oficiales se verifican con SHA-256 y se comprueban sus versiones y los assets del solver durante la construcción. Incluye Python, AES y Node 22; yt-dlp usa exclusivamente `/usr/local/bin/node` para JavaScript. `TMPDIR=/tmp/yt-dlp` contiene el socket interno del proxy y no necesita permiso de ejecución. Para actualizar yt-dlp, actualizá juntos su versión, wheel, checksum y el EJS compatible, y reconstruí la imagen.
 
 La API requiere Linux, el ejecutable de aislamiento compilado y el adaptador de yt-dlp incluidos en esta imagen. En Windows y macOS, usá Docker también para desarrollo; instalar solo Node, yt-dlp y FFmpeg ya no alcanza para iniciar la API. Los lanzadores originales de terminal siguen disponibles y son independientes de la API.
 
 ### Protección de las conexiones
 
 - La API y el proxy comparten la política de esquemas, puertos y direcciones públicas.
-- Cada descargador se inicia bajo seccomp. El filtro bloquea sockets de Internet y se hereda por todos los hijos, incluidos FFmpeg y FFprobe. Antes de ejecutar se cierran los descriptores heredados salvo stdin/stdout/stderr.
+- Cada descargador se inicia bajo seccomp. El filtro bloquea sockets de Internet y se hereda por todos los hijos, incluidos Node, FFmpeg y FFprobe. Antes de ejecutar se cierran los descriptores heredados salvo stdin/stdout/stderr.
 - yt-dlp usa un socket Unix privado para comunicarse con un proxy HTTP interno. No hay un puerto TCP de proxy expuesto.
 - Cada trabajo recibe un permiso aleatorio interno, distinto de la clave del usuario; se revoca y se cierran sus conexiones al terminar, cancelar o superar límites.
 - El proxy comprueba todas las IP del dominio, rechaza direcciones privadas, reservadas, mapeadas o mixtas, conecta a una IP literal validada sin otra resolución y comprueba la dirección efectiva antes de reenviar.
 - Las redirecciones y los segmentos vuelven a pasar por esta protección. HTTPS conserva la validación TLS del sitio, sin interceptar certificados.
-- FFmpeg procesa archivos locales. Se rechazan transmisiones y formatos que requieran descargas directas de FFmpeg. Los plugins, componentes remotos y runtimes JavaScript de yt-dlp están desactivados.
+- FFmpeg procesa archivos locales. Se rechazan transmisiones y formatos que requieran descargas directas de FFmpeg. Los plugins externos y las descargas de componentes remotos están desactivados. Solo está habilitado Node, heredando seccomp y las restricciones de permisos que aplica yt-dlp; EJS usa assets locales verificados y los clientes predeterminados de YouTube.
 - El DNS utiliza el resolver normal del host; no necesita excepciones de firewall para Docker DNS.
 
-La API comprueba que puede instalar el filtro y ejecutar las herramientas antes de escuchar. El mensaje de inicio esperado es **“Downloader network sandbox and checked internal proxy ready”**.
+La API comprueba que puede instalar el filtro, ejecutar las herramientas (incluido Node) y cargar EJS compatible antes de escuchar. Los mensajes de inicio esperados son **“Downloader network sandbox and checked internal proxy ready”** y **“YouTube compatibility ready: local EJS, protected Node runtime, default clients”**. La disponibilidad de dependencias no confirma que YouTube permita descargar desde la IP del host; un bloqueo antibot sigue siendo un fallo explícito. Ver [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Configuración
 
@@ -103,7 +103,7 @@ El permiso se consume antes de iniciar la entrega; se invalida al expirar, cance
 
 ## Candidato de despliegue: Render Free
 
-**Compatibilidad pendiente.** `render.yaml` prepara un Web Service Docker gratuito, con despliegue automático desactivado, salud en `/healthz` y acceso abierto (`AUTH_REQUIRED=false`). El primer despliegue construyó correctamente la imagen pero falló en el firewall; el usuario autorizó la adaptación a un proxy interno y un filtro seccomp sin privilegios. Su nuevo arranque y las descargas en Render siguen pendientes.
+**Validación completa pendiente.** `render.yaml` prepara un Web Service Docker gratuito, con despliegue automático desactivado, salud en `/healthz` y acceso abierto (`AUTH_REQUIRED=false`). La API adaptada está desplegada y responde a salud, pero el usuario registró una verificación antibot de YouTube para el enlace previamente funcional en local. El ajuste de nightly/EJS/Node está preparado para el siguiente deploy. Las descargas y la validación completa del aislamiento en Render siguen pendientes.
 
 Registrá el nuevo arranque y las comprobaciones pendientes en [HOST-QUALIFICATION.md](HOST-QUALIFICATION.md). Si Render rechaza seccomp, la API se detendrá antes de escuchar; no existe una alternativa automática sin protección.
 

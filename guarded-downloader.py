@@ -15,6 +15,11 @@ sys.path.insert(0, "/opt/yt-dlp")
 
 if sys.argv[1:] == ["--version"]:
     from yt_dlp.version import __version__
+    import yt_dlp_ejs
+    from yt_dlp.extractor.youtube.jsc._builtin import vendor
+    from yt_dlp_ejs.yt import solver
+    if yt_dlp_ejs.version != vendor.VERSION or not solver.core() or not solver.lib():
+        sys.exit("Compatible local yt-dlp-ejs solver assets are required")
     print(__version__)
     sys.exit(0)
 
@@ -74,5 +79,7 @@ from yt_dlp import main
 
 main([
     "--ignore-config", "--no-plugin-dirs", "--no-js-runtimes", "--no-remote-components",
+    # Reset defaults, then permit only bundled Node. Its child inherits seccomp.
+    "--js-runtimes", "node:/usr/local/bin/node",
     "--proxy", proxy_url, "--downloader", "native", *sys.argv[1:]
 ])

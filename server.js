@@ -38,6 +38,7 @@ const TEMP_ROOT = path.resolve(process.env.DOWNLOAD_TMP_DIR || path.join(os.tmpd
 const YTDLP = process.env.YTDLP_PATH || "/usr/local/bin/yt-dlp";
 const FFMPEG = process.env.FFMPEG_PATH || "/usr/bin/ffmpeg";
 const SANDBOX = process.env.DOWNLOAD_SANDBOX_PATH || "/usr/local/bin/download-sandbox";
+const JS_RUNTIME = "/usr/local/bin/node";
 const jobs = new Map();
 const activeJobs = new Set();
 const tickets = new Map();
@@ -262,7 +263,6 @@ function runDownload(job, url) {
   const args = [
     "--ignore-config", "--no-color", "--newline", "--no-playlist",
     "--max-filesize", String(MAX_OUTPUT_BYTES),
-    "--extractor-args", "youtube:player_client=android",
     "--progress-template", "download:DL_PROGRESS:%(progress.percent)s:%(progress.eta)s",
     "--print", "after_move:APP_OUTPUT:%(filepath)s",
     "--restrict-filenames", "--remux-video", "mp4", "--ffmpeg-location", FFMPEG,
@@ -521,7 +521,7 @@ function assertToolsAvailable() {
   if (process.platform !== "linux") throw new Error("The API download sandbox requires Linux. Run the backend with Docker.");
   const check = spawnSync(SANDBOX, ["--check"], { encoding: "utf8", timeout: 10000 });
   if (check.error || check.status !== 0) throw new Error(`Cannot install downloader network sandbox: ${check.stderr || check.error?.message || "unsupported host"}`);
-  for (const [binary, args] of [[YTDLP, ["--version"]], [FFMPEG, ["-version"]]]) {
+  for (const [binary, args] of [[YTDLP, ["--version"]], [FFMPEG, ["-version"]], [JS_RUNTIME, ["--version"]]]) {
     const result = spawnSync(SANDBOX, [binary, ...args], { encoding: "utf8", timeout: 10000, windowsHide: true });
     if (result.error || result.status !== 0) throw new Error(`Required server tool unavailable: ${path.basename(binary)}`);
   }
@@ -532,6 +532,7 @@ async function main() {
   await cleanStaleFiles();
   egressProxy = await createEgressProxy(path.join(process.env.TMPDIR || os.tmpdir(), "video-audio-dl-proxy"));
   process.stdout.write("Downloader network sandbox and checked internal proxy ready\n");
+  process.stdout.write("YouTube compatibility ready: local EJS, protected Node runtime, default clients\n");
   server = http.createServer((req, res) => {
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "no-referrer");

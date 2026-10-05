@@ -2,7 +2,7 @@
 
 ## Estado
 
-Ambos repositorios están publicados en GitHub bajo `marianobattaglia`. El frontend está en `https://video-audio-dl.vercel.app` y el backend en `https://video-audio-dl-backend.onrender.com`. El backend adaptado responde a `/healthz` con `status: "ok"` y `authRequired: false`. El usuario reportó que el enlace de YouTube `bzhObFFhXiw`, que funcionaba localmente, falla en el despliegue con el mensaje genérico de cookies. La causa original todavía no está confirmada y el recorrido completo sigue pendiente. Ver [HOST-QUALIFICATION.md](HOST-QUALIFICATION.md).
+Ambos repositorios están publicados en GitHub bajo `marianobattaglia`. El frontend está en `https://video-audio-dl.vercel.app` y el backend en `https://video-audio-dl-backend.onrender.com`. El backend adaptado responde a `/healthz` con `status: "ok"` y `authRequired: false`. El usuario confirmó el rechazo antibot de YouTube para `bzhObFFhXiw`, que funcionaba localmente. Autorizó un ajuste de compatibilidad con nightly/EJS/Node; está implementado para el próximo deploy. El recorrido completo sigue pendiente. Ver [HOST-QUALIFICATION.md](HOST-QUALIFICATION.md).
 
 Los proyectos son carpetas hermanas: `video-audio-dl-frontend/` y `video-audio-dl-backend/`. Cada una tiene su propio `.git`, README y configuración. Publicá cada raíz en un remoto distinto con el mismo nombre que su proyecto. La carpeta contenedora conserva OpenSpec y no es un repositorio Git. Podés mantener ambas copias de trabajo en ubicaciones distintas.
 
@@ -18,11 +18,27 @@ La fila de producción registra los dominios actuales; la de preview es un ejemp
 
 ## Diagnóstico de descargas de YouTube
 
-El cliente consulta el sitio de origen desde Render, cuya IP es distinta de la conexión local. Que un enlace funcione localmente no confirma que YouTube permita la descarga desde el host. La configuración actual fuerza el cliente Android, no incorpora `yt-dlp-ejs` y desactiva runtimes JavaScript; también puede tener límites de compatibilidad. No se determinó cuál de estas causas afecta al enlace reportado.
+El cliente consulta el sitio de origen desde Render, cuya IP es distinta de la conexión local. Que un enlace funcione localmente no confirma que YouTube permita la descarga desde el host. La revisión que falló forzaba el cliente Android, no incorporaba `yt-dlp-ejs` y desactivaba runtimes JavaScript. El usuario aportó el diagnóstico original: el trabajo de audio termina con `exitCode: 1`, `reason: "source_bot_check"` y `ERROR: [youtube] bzhObFFhXiw: Sign in to confirm you’re not a bot`. También aparece la advertencia de título ausente en las respuestas del reproductor. Está confirmada la verificación antibot; el log no demuestra que falte JavaScript ni que instalarlo elimine el bloqueo.
 
 El backend registra los fallos del descargador como una línea JSON con `event: "download_failed"`, el identificador del trabajo, `exitCode`, `reason` y `diagnostics`. Los diagnósticos están acotados, con URLs y la clave de acceso eliminadas; no se envían al navegador. Las advertencias se conservan para identificar dependencias o formatos faltantes. El mensaje visible distingue una verificación antibot explícita de un pedido explícito de inicio de sesión; una mera mención de cookies no se toma como prueba de autenticación.
 
-Para obtener la causa: publicar esta revisión del backend, usar **Manual Deploy → Deploy latest commit**, repetir una vez la descarga y buscar `download_failed` en los logs de Render. Registrar el error y las advertencias antes de modificar clientes, dependencias o hosting. Este cambio mejora el diagnóstico y el mensaje; no elimina bloqueos del sitio de origen. Las modificaciones de JavaScript requieren revisar la decisión de aislamiento documentada en OpenSpec.
+Después de cada revisión: publicar el backend, usar **Manual Deploy → Deploy latest commit**, repetir una vez la descarga y buscar `download_failed` en los logs de Render si falla. Registrar el error y las advertencias antes de modificar clientes, dependencias o hosting. Los diagnósticos y mensajes no eliminan bloqueos del sitio de origen.
+
+### Ajuste de compatibilidad aprobado e implementado
+
+1. La imagen usa la nightly oficial yt-dlp `2026.9.27.232945.dev0`, fijada por URL y SHA-256. PyPI publica `2026.8.19` como última estable consultada; la nightly incorpora cambios posteriores.
+2. Se incorpora `yt-dlp-ejs` `0.8.0`, requerido exactamente por esa versión de yt-dlp, con URL y SHA-256. La construcción comprueba versiones, compatibilidad y assets del solver. Las descargas de componentes en tiempo de ejecución y los plugins externos siguen desactivados.
+3. Solo se habilita `node:/usr/local/bin/node`, después de borrar los runtimes predeterminados. Sus procesos heredan seccomp y las restricciones de permisos de yt-dlp; el proxy conserva la validación de destinos. El arranque exige Node disponible bajo seccomp y EJS compatible local.
+4. Se retiró `youtube:player_client=android`; yt-dlp selecciona sus clientes predeterminados.
+5. Pendiente: registrar el resultado del mismo enlace desde Render. Si persiste la verificación antibot, la actualización no habrá resuelto el bloqueo de origen; evaluar por separado una salida de red aceptada por YouTube o una sesión autenticada, con sus costes y límites.
+
+Este ajuste apunta a compatibilidad completa, no promete desbloquear una IP ni añade cookies de usuario. Se actualizó la decisión de OpenSpec con la aprobación del usuario. Su publicación y recorrido en Render siguen pendientes.
+
+La imagen local `video-audio-dl-backend:youtube-ejs` se construyó correctamente: comprobó SHA-256 de ambos wheels, versiones compatibles y assets locales de EJS. No se ejecutaron pruebas automatizadas ni descargas para este ajuste.
+
+Para publicarlo: hacé commit/push desde el repositorio del backend y en Render elegí **Manual Deploy → Deploy latest commit**. Conservá las variables actuales y Docker Command vacío. Buscá **“YouTube compatibility ready: local EJS, protected Node runtime, default clients”** y después repetí el enlace. Si falla, copiá la línea `download_failed` con las advertencias. El frontend no requiere cambios ni redeploy para este ajuste.
+
+Referencias: [verificación antibot e IP bloqueada](https://github.com/yt-dlp/yt-dlp/issues/3766), [clientes de YouTube](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube), [EJS y runtimes admitidos](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
 
 `AUTH_REQUIRED=false` deja acceso abierto por defecto. Para exigir clave más adelante, usá `AUTH_REQUIRED=true` y configurá `ACCESS_CREDENTIAL` exclusivamente en el runtime del backend; la interfaz la pedirá al conocer ese modo en `/healthz`. La clave no es necesaria y se ignora con la función apagada. `API_BASE_URL` es público y se incorpora a la construcción estática del frontend. Nunca publiques `.env` ni pongas la clave en Vercel.
 
