@@ -258,6 +258,38 @@ function signalDownload(child, signal) {
   }
 }
 
+function privateDownloadDetails(job) {
+  const text = job.diagnostics;
+  // Treat downloader output as untrusted. Emit literal classifications only;
+  // never include matching lines, exception messages, paths or header values.
+  const patterns = [
+    ["http_401", /HTTP (?:Error|error|status(?: code)?)[: ]+401\b/],
+    ["http_403", /HTTP (?:Error|error|status(?: code)?)[: ]+403\b/],
+    ["http_429", /HTTP (?:Error|error|status(?: code)?)[: ]+429\b/],
+    ["proxy_rejected", /Tunnel connection failed: 403|Internal proxy access denied|Download connection failed/i],
+    ["network_policy_blocked", /Direct download connections are blocked|Downloader DNS must pass through|Only the internal HTTP proxy transport/i],
+    ["network_timeout", /timed out|timeout/i],
+    ["tls_failed", /CERTIFICATE_VERIFY_FAILED|certificate verify failed|SSLCertVerificationError/],
+    ["cookie_session_invalid", /cookies?.*(?:no longer valid|expired|rotated|invalidated)/i],
+    ["cookie_save_failed", /\bE_COOKIE_SAVE\b/],
+    ["po_token_required", /(?:PO[ _-]?Token|proof.of.origin).*(?:required|missing|not provided)|formats?.*(?:missing|require).*PO[ _-]?Token/i],
+    ["javascript_challenge_failed", /n challenge solving failed|nsig extraction failed|signature extraction failed|challenge solving failed|signature solving failed/i],
+    ["format_unavailable", /Requested format is not available|No video formats found|Only images are available/i],
+    ["content_unavailable", /Video unavailable|This video is unavailable|This video has been removed|Video is not available/i],
+    ["region_restricted", /not available in your country|geo.restricted|geographic restriction/i],
+    ["disk_full", /No space left on device/],
+    ["permission_denied", /Permission denied|PermissionError/],
+    ["postprocessing_failed", /ERROR:\s*(?:Postprocessing|ffmpeg)|ffmpeg exited with code/i],
+    ["python_traceback", /Traceback \(most recent call last\):/]
+  ];
+  const details = { cookieSessionUsed: Boolean(job.cookiePath), issues: patterns.filter(([, pattern]) => pattern.test(text)).map(([name]) => name) };
+  const exceptions = ["AttributeError", "TypeError", "ValueError", "RuntimeError", "KeyError", "AssertionError", "ImportError", "ModuleNotFoundError", "PermissionError", "FileNotFoundError", "OSError"];
+  const exception = exceptions.find(name => new RegExp(`(?:^|\\n)${name}:`).test(text));
+  if (exception) details.exception = exception;
+  if (["SIGABRT", "SIGBUS", "SIGFPE", "SIGILL", "SIGKILL", "SIGPIPE", "SIGSEGV", "SIGTERM"].includes(job.exitSignal)) details.signal = job.exitSignal;
+  return details;
+}
+
 function downloadFailure(diagnostics) {
   // Suggestions and warnings can mention cookies even when login is unrelated.
   const errors = diagnostics.split(/\r?\n/).filter((line) => /^\s*ERROR:/i.test(line)).join("\n");
@@ -273,6 +305,26 @@ function downloadFailure(diagnostics) {
       message: "Este contenido requiere iniciar sesión en el sitio de origen. Ese tipo de enlace no está disponible en esta app."
     };
   }
+  const classifications = [
+    ["network_policy_blocked", /Direct download connections are blocked|Downloader DNS must pass through|Only the internal HTTP proxy transport/i, "La conexión fue rechazada por la protección de red del servicio."],
+    ["cookie_save_failed", /\bE_COOKIE_SAVE\b/, "El servicio no pudo actualizar la copia temporal de la sesión."],
+    ["source_rate_limited", /HTTP (?:Error|error)[: ]+429\b/, "El sitio limitó las solicitudes desde el servidor. Volvé a intentarlo más tarde."],
+    ["proxy_rejected", /Tunnel connection failed: 403|Internal proxy access denied|Download connection failed/i, "No se pudo establecer la conexión protegida con el sitio."],
+    ["source_http_forbidden", /HTTP (?:Error|error)[: ]+403\b/, "El sitio rechazó el acceso al contenido desde el servidor."],
+    ["source_cookie_session_invalid", /cookies?.*(?:no longer valid|expired|rotated|invalidated)/i, "El sitio indicó que la sesión de YouTube dejó de ser válida."],
+    ["source_format_unavailable", /Requested format is not available|No video formats found|Only images are available/i, "El sitio no ofreció un formato de audio o video descargable para ese enlace."],
+    ["source_region_restricted", /not available in your country|geo.restricted|geographic restriction/i, "El contenido no está disponible en la región del servidor."],
+    ["source_unavailable", /Video unavailable|This video is unavailable|This video has been removed|Video is not available/i, "El sitio indicó que ese contenido no está disponible."],
+    ["source_tls_failed", /CERTIFICATE_VERIFY_FAILED|certificate verify failed|SSLCertVerificationError/, "No se pudo verificar la conexión segura con el sitio."],
+    ["source_connection_timeout", /timed out|timeout/i, "La conexión con el sitio superó el tiempo de espera."],
+    ["download_disk_full", /No space left on device/, "El servicio no tiene espacio temporal suficiente para completar la descarga."],
+    ["download_postprocessing_failed", /ERROR:\s*(?:Postprocessing|ffmpeg)|ffmpeg exited with code/i, "No se pudo convertir el archivo al formato solicitado."]
+  ];
+  const classified = classifications.find(([, pattern]) => pattern.test(errors));
+  if (classified) return { reason: classified[0], message: classified[2] };
+  if (/Traceback \(most recent call last\):/.test(diagnostics)) {
+    return { reason: "downloader_internal_error", message: "La herramienta de descarga encontró un error interno." };
+  }
   return {
     reason: "download_failed",
     message: "No se pudo descargar esa URL. Comprueba el enlace o prueba con otro sitio compatible."
@@ -281,7 +333,7 @@ function downloadFailure(diagnostics) {
 
 function logDownloadFailure(job, code, reason) {
   if (SOURCE_SESSION) {
-    process.stderr.write(`${JSON.stringify({ event: "download_failed", jobId: job.id, kind: job.kind, exitCode: Number.isInteger(code) ? code : null, reason })}\n`);
+    process.stderr.write(`${JSON.stringify({ event: "download_failed", jobId: job.id, kind: job.kind, exitCode: Number.isInteger(code) ? code : null, reason, ...privateDownloadDetails(job) })}\n`);
     return;
   }
   let diagnostics = job.diagnostics;
@@ -352,7 +404,7 @@ async function executeDownload(job, url) {
   };
   let child;
   try { child = spawn(SANDBOX, [YTDLP, ...args], { cwd: job.directory, env, shell: false, windowsHide: true, detached: true, stdio: ["ignore", "pipe", "pipe"] }); }
-  catch { await cookieSession.release(job.id); await removeJobFiles(job); job.status = "failed"; job.message = "No se pudo iniciar el servicio de descarga."; return; }
+  catch { logDownloadFailure(job, null, "downloader_launch_failed"); await cookieSession.release(job.id); await removeJobFiles(job); job.status = "failed"; job.message = "No se pudo iniciar el servicio de descarga."; return; }
   job.child = child;
   job.status = "running";
   job.message = "Conectando con el sitio…";
@@ -396,7 +448,8 @@ async function executeDownload(job, url) {
 
   let launchFailed = false;
   child.on("error", () => { launchFailed = true; });
-  const code = await new Promise(resolve => child.once("close", resolve));
+  const { code, signal } = await new Promise(resolve => child.once("close", (code, signal) => resolve({ code, signal })));
+  job.exitSignal = signal;
     session.close();
     if (job.timer) clearTimeout(job.timer);
     if (job.sizeTimer) clearInterval(job.sizeTimer);
@@ -414,12 +467,15 @@ async function executeDownload(job, url) {
       await removeJobFiles(job);
     } else if (launchFailed) {
       job.status = "failed"; job.message = "No se pudo iniciar el servicio de descarga.";
+      logDownloadFailure(job, code, "downloader_launch_failed");
     } else if (job.timedOut) {
       job.status = "failed";
       job.message = "La descarga superó el tiempo máximo permitido.";
+      logDownloadFailure(job, code, "download_timeout");
     } else if (job.tooLarge) {
       job.status = "failed";
       job.message = "El archivo supera el límite de tamaño configurado.";
+      logDownloadFailure(job, code, "download_size_limit");
     } else if (code === 0 && job.outputPath) {
         try {
           const media = await openMedia(job, TEMP_ROOT, MAX_OUTPUT_BYTES);
@@ -434,6 +490,7 @@ async function executeDownload(job, url) {
         } catch {
           job.status = "failed";
           job.message = "La descarga terminó sin generar un archivo válido.";
+          logDownloadFailure(job, code, "invalid_media_output");
         }
     } else {
       job.status = "failed";

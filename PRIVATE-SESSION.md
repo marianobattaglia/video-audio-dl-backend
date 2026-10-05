@@ -60,6 +60,19 @@ Con sesión configurada, `startup_failed` registra únicamente etapa y códigos 
 
 Para compartir un fallo, copiar únicamente ese registro estructurado; nunca el contenido de Secret Files ni los valores privados del panel. Los códigos ayudan a identificar una causa, pero no acreditan por sí solos la calificación del host.
 
+## Diagnosticar descargas con sesión activa
+
+Los logs siguen activos en modo privado. `download_failed` conserva `jobId`, `kind`, `exitCode` y `reason`, y agrega únicamente metadatos permitidos:
+
+- `cookieSessionUsed`: indica que el trabajo fue configurado con una copia de sesión; no confirma que YouTube la haya aceptado.
+- `issues`: lista acotada de etiquetas fijas detectadas en la salida, como `http_403`, `http_429`, `cookie_session_invalid`, `po_token_required`, `javascript_challenge_failed`, `format_unavailable`, `proxy_rejected`, `network_policy_blocked`, `network_timeout`, `tls_failed`, `disk_full` y `postprocessing_failed`.
+- `exception`: clase Python de una lista fija, si se detecta una excepción; no incluye su mensaje ni stack.
+- `signal`: señal de terminación de una lista fija, si el proceso terminó por señal. `SIGKILL` por sí sola no confirma falta de memoria.
+
+Los motivos públicos distinguen errores conocidos de acceso HTTP, formato, región, TLS, espera, conversión y fallos internos. Si no se reconoce el error, queda `download_failed`; las etiquetas son indicios y no una explicación garantizada de la causa. También se registran fallos de lanzamiento, tiempo/tamaño y salida de medios inválida.
+
+Nunca habilitar stderr/stdout crudos para depurar con cookies reales. No se publica texto capturado, títulos, URLs, cookies, cabeceras, rutas privadas ni mensajes de excepciones. Para continuar un diagnóstico, compartir solamente el registro estructurado del trabajo que falló.
+
 ## Prueba local opcional
 
 Usar un archivo externo ficticio o una sesión explícitamente autorizada; las pruebas automatizadas ya generan fixtures sin datos personales. Para montar una fuente local, crear **fuera del repo** un override de Compose como este ejemplo y reemplazar solamente la ruta ficticia por una ruta absoluta externa:
