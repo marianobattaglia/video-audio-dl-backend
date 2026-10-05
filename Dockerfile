@@ -43,12 +43,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --chown=node:node package.json server.js network-policy.js egress-proxy.js guarded-downloader.py ./
+COPY --chown=node:node package.json server.js network-policy.js egress-proxy.js guarded-downloader.py private-session.js media-output.js private_cookie_policy.py ./
 COPY --from=sandbox-build /download-sandbox /usr/local/bin/download-sandbox
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint
 COPY yt-dlp-launcher.sh /usr/local/bin/yt-dlp
 RUN chmod 0755 /usr/local/bin/docker-entrypoint /usr/local/bin/yt-dlp /usr/local/bin/download-sandbox \
-    && python3 -c "import ast; ast.parse(open('/app/guarded-downloader.py').read())" \
+    && python3 -c "import ast; ast.parse(open('/app/guarded-downloader.py').read()); ast.parse(open('/app/private_cookie_policy.py').read())" \
     && mkdir -p /tmp/downloads /tmp/yt-dlp \
     && chown node:node /tmp/downloads /tmp/yt-dlp
 

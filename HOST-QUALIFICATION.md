@@ -53,6 +53,20 @@ Dos comprobaciones adicionales pasaron: **(1)** impedir seccomp produce salida 1
 
 **Pendiente:** la calificación completa de Render, la ejecución real del solver, los recursos de medios representativos y el recorrido en navegador desplegado siguen abiertos en tareas 3.2, 3.3, 3.4 y 4.4. No se desplegó ni se publicó nada durante esta verificación.
 
+## Sesión privada: implementación y verificación local — 5 de octubre de 2026
+
+El cambio `private-youtube-cookie-session` ahora está implementado localmente. La sección anterior registra la etapa previa sin cookies; no acredita esta feature ni su publicación. La nueva ejecución pasó **44 casos privados** y **33 regresiones sin cookies**: **77/77**, con datos ficticios. Los informes sanitizados están en [tests/private-session/README.md](tests/private-session/README.md), incluyendo resultados separados de sesión, regresión y auditoría. Imagen de las suites: `sha256:a8f58efc4e6cbe28680415eaa0ec6c3993907edc2b32df43325d5f22861b6dd6`; construida sobre cambios locales todavía sin commit, a partir de `4683394`.
+
+Se verificaron matriz de arranque/autorización independiente de CORS, fuente externa acotada y sin modificar, permisos 0700/0600, jar HTTPS/domain/path/expiración y cookies nuevas, limpieza antes de completar, cancelación/timeout/descendientes y borrado fallido, shutdown/huérfanos, cuotas, logs/nombres y salida endurecida. Un ticket válido rechaza un archivo reemplazado por un enlace a la fuente privada. Una raíz de limpieza con alias de filesystem se rechaza antes de tocar el original. En las regresiones siguen vigentes proxy/seccomp, sockets heredados, DNS pinning, peer, redirecciones y TLS, con conversión real MP3/MP4 de medios sintéticos.
+
+La auditoría reconstruyó ambas salidas con marcadores aleatorios ficticios: archivos ignorados y no rastreados, contexto Docker construido con `COPY .`, metadatos y **13 capas/12.012 archivos** de las imágenes exportadas sin esos marcadores; frontend sin clave, cookies ni ruta privada. Se verificó CSP anterior a scripts, sin scripts externos, HTTPS obligatorio en build de producción y HTTP local restringido a loopback. La reconstrucción auditada tiene contenido de aplicación equivalente a la imagen de las suites; su identificador de manifiesto puede cambiar por metadatos de construcción.
+
+El recorrido del navegador local se registra por separado en [evidence-2026-10-05.md](tests/private-session/evidence-2026-10-05.md). No se lee ningún perfil o cookie del navegador. Fuente y cookies HTTP de YouTube se simulan; no se intenta autenticar en YouTube ni probar su solver real. Las redes de las suites son internas, con 512 MiB y 0,1 CPU. El fixture adicional de navegador publica solo loopback y conserva las protecciones del API.
+
+Para reproducir: `powershell -ExecutionPolicy Bypass -File tests/private-session/verify.ps1`. La guía [PRIVATE-SESSION.md](PRIVATE-SESSION.md) describe configuración privada exclusivamente en Render Secret Files, cuenta dedicada, MFA, HTTPS, clave aleatoria, confianza en el proveedor, rotación/revocación y rollback protegido.
+
+**Pendiente:** publicación y calificación con valores ficticios (5.3), y posteriormente provisión/prueba de una sesión real por el operador (5.4). No se publicaron estos cambios ni se cargaron secretos reales. Las tareas 3.2, 3.3, 3.4 y 4.4 de `split-frontend-backend-repositories` permanecen abiertas; estos resultados locales no las completan.
+
 ## Protección implementada
 
 1. La API valida una URL inicial HTTP/HTTPS pública, en 80/443, sin credenciales.
@@ -97,6 +111,8 @@ Registrar host/plan, commit, fecha, resultado y registros sin claves ni permisos
 Los límites de 64 MB por trabajo, 192 MB temporales, 600 segundos y una descarga simultánea requieren medición en el host.
 
 ## Siguiente despliegue
+
+Para `private-youtube-cookie-session`, usar [PRIVATE-SESSION.md](PRIVATE-SESSION.md): `AUTH_REQUIRED=true`, clave aleatoria y `YOUTUBE_COOKIES_FILE` vacío durante la calificación inicial. Este listado general conserva la configuración del despliegue base sin sesión; no usar acceso abierto al incorporar cookies.
 
 1. Publicar los cambios del backend en GitHub.
 2. En Render: **Manual Deploy → Deploy latest commit**, con Docker Command vacío.

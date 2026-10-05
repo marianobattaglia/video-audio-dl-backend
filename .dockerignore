@@ -4,3 +4,10 @@ downloads
 *.log
 .env
 .env.*
+**/secrets
+**/.secrets
+**/cookies
+**/.cookies
+**/*cookies*.txt
+**/*Cookies*.txt
+**/*.cookiejar

@@ -77,6 +77,10 @@ os.environ["no_proxy"] = ""
 
 from yt_dlp import main
 
+if "--cookies" in sys.argv[1:]:
+    from private_cookie_policy import install_policy
+    install_policy()
+
 main([
     "--ignore-config", "--no-plugin-dirs", "--no-js-runtimes", "--no-remote-components",
     # Reset defaults, then permit only bundled Node. Its child inherits seccomp.

@@ -15,7 +15,7 @@ function cleanHeaders(headers) {
   return Object.fromEntries(Object.entries(headers).filter(([name]) => !blocked.has(name.toLowerCase())));
 }
 
-async function createEgressProxy(directory) {
+async function createEgressProxy(directory, onError) {
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   const socketPath = path.join(directory, `egress-${process.pid}-${randomBytes(6).toString("hex")}.sock`);
   if (Buffer.byteLength(socketPath) > 100) throw new Error("Internal proxy socket path is too long");
@@ -149,7 +149,7 @@ async function createEgressProxy(directory) {
     await fs.unlink(socketPath).catch(() => {});
     throw error;
   }
-  proxy.on("error", (error) => { process.stderr.write(`Internal proxy error: ${error.code || "unknown"}\n`); });
+  proxy.on("error", (error) => { if (onError) onError(); else process.stderr.write(`Internal proxy error: ${error.code || "unknown"}\n`); });
 
   return {
     createSession() {

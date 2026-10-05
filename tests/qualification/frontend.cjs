@@ -8,13 +8,14 @@ function element() {
     addEventListener(name, fn) { this.events[name] = fn; }, querySelector() { return this.label || (this.label = element()); }, querySelectorAll() { return []; },
     removeAttribute(name) { delete this[name]; }, setAttribute(name, value) { this[name] = value; }, showModal() { this.open = true; }, close() { this.open = false; }, focus() {} };
 }
-function client(source, fetch) {
+function client(source, fetch, sessionStorage = { getItem() { return null; }, removeItem() {}, setItem() {} }) {
   const elements = new Map(), timers = new Map(); let sequence = 0;
+  const windowEvents = {};
   const document = { querySelector(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); }, createElement: element, body: { append() {} } };
-  const context = vm.createContext({ document, window: { APP_CONFIG: { apiBaseUrl: "http://localhost:3000" }, addEventListener() {} }, sessionStorage: { getItem() { return null; }, removeItem() {}, setItem() {} }, URL, AbortController, console, fetch,
+  const context = vm.createContext({ document, window: { APP_CONFIG: { apiBaseUrl: "http://localhost:3000" }, addEventListener(name, action) { windowEvents[name] = action; } }, sessionStorage, URL, AbortController, console, fetch,
     setTimeout(fn, delay) { const id = ++sequence; timers.set(id, { fn, delay }); return id; }, clearTimeout(id) { timers.delete(id); } });
   vm.runInContext(source, context);
-  return { context, elements, timers, evaluate: code => vm.runInContext(code, context) };
+  return { context, elements, timers, windowEvents, evaluate: code => vm.runInContext(code, context) };
 }
 function response(status, body, type = "application/json") { return { ok: status < 400, status, headers: { get() { return type; } }, async json() { return body; } }; }
 module.exports = async test => {
@@ -67,3 +68,4 @@ module.exports = async test => {
     assert.equal(app.elements.get("#connection-title").textContent, "No pudimos conectar");
   });
 };
+module.exports.client = client;

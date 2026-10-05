@@ -65,6 +65,7 @@ Docker Compose carga `.env`; Node directo y el host leen variables del proceso. 
 | --- | --- |
 | `AUTH_REQUIRED` | `false` por defecto: acceso abierto. `true`: exige clave. Solo admite esos dos valores; requiere reiniciar el backend tras cambiarlo. |
 | `ACCESS_CREDENTIAL` | Obligatoria solo con `AUTH_REQUIRED=true`; clave compartida de al menos 24 caracteres sin espacios. Se ignora en modo abierto. |
+| `YOUTUBE_COOKIES_FILE` | Vacía por defecto. Ruta externa de runtime a un Secret File Netscape de YouTube, máximo 64 KiB. Exige `AUTH_REQUIRED=true` y clave válida; configuración insegura impide iniciar. |
 | `FRONTEND_ORIGINS` | Lista separada por comas de orígenes exactos, sin barra final, ruta ni wildcard. Sin valor, no se concede acceso cross-origin. |
 | `HOST` | `0.0.0.0`; escucha en todas las interfaces del contenedor. |
 | `PORT` | `3000` por defecto; en el host se utiliza el valor que suministre la plataforma. |
@@ -81,6 +82,12 @@ Docker Compose carga `.env`; Node directo y el host leen variables del proceso. 
 | `YTDLP_PATH`, `FFMPEG_PATH` | Rutas de herramientas; en Docker `/usr/local/bin/yt-dlp` y `/usr/bin/ffmpeg`. |
 | `DOWNLOAD_SANDBOX_PATH` | `/usr/local/bin/download-sandbox`; protección obligatoria, sin modo para omitirla. |
 | `TMPDIR` | Docker usa `/tmp/yt-dlp`, para el socket y temporales auxiliares. |
+
+### Sesión privada opcional
+
+La sesión está implementada y probada localmente con datos ficticios; todavía no fue publicada ni calificada en Render/Vercel. Mantener `YOUTUBE_COOKIES_FILE` vacío conserva el comportamiento sin cookies. Su uso obliga a proteger el acceso con clave, guardada por el frontend solo en memoria y borrada al recargar. El original debe estar fuera del repositorio y de los árboles temporales. Se generan copias privadas por trabajo, eliminadas tras detener todos los descendientes, y se validan archivos de salida antes de emitir tickets y servirlos. En modo sesión solo se registran campos permitidos y se generan nombres públicos por UUID.
+
+Seguí [PRIVATE-SESSION.md](PRIVATE-SESSION.md) para calificar primero sin cookies, provisionar exclusivamente en Render Secret Files, proteger el panel con MFA, usar una cuenta dedicada y rotar/revocar o revertir manteniendo autorización. Cookies y claves nunca van en GitHub, frontend, build o chat. El proveedor y backend pueden leer la sesión; no hay garantía de superar el rechazo de YouTube. Las verificaciones reproducibles están en [tests/private-session/README.md](tests/private-session/README.md).
 
 Compose limita memoria a 512 MB y CPU a 0,1, monta hasta 256 MB de archivos de descarga temporales y 16 MB para el socket y temporales auxiliares. Los valores iniciales son conservadores, **no una capacidad medida ni garantizada de Render**. El muestreo de tamaño cada dos segundos puede exceder momentáneamente los límites y no sustituye las cuotas del host. Los límites y errores eliminan los archivos del trabajo; un reinicio limpia los restantes.
 

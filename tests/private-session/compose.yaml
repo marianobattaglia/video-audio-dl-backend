@@ -1,0 +1,100 @@
+services:
+  fixture:
+    image: video-audio-dl-backend:private-session
+    user: "0:0"
+    entrypoint: ["node", "/private-tests/fixture.cjs"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - .:/private-tests:ro
+      - ../qualification:/qualification:ro
+      - fixtures:/fixtures
+    networks:
+      controlled:
+        ipv4_address: 11.250.238.2
+        aliases: [fixture.test, badcert.test]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  verification:
+    image: video-audio-dl-backend:private-session
+    entrypoint: ["node", "/private-tests/run.cjs"]
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    mem_limit: 512m
+    cpus: 0.1
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000
+    volumes:
+      - .:/private-tests:ro
+      - ../qualification:/qualification:ro
+      - fixtures:/fixtures:ro
+      - fixtures:/etc/ssl/certs:ro
+      - ../../../video-audio-dl-frontend/public:/frontend:ro
+    environment:
+      AUTH_REQUIRED: "false"
+      ACCESS_CREDENTIAL: ""
+      YOUTUBE_COOKIES_FILE: ""
+      JOB_CREATE_LIMIT: "100"
+      AUTH_FAILURE_LIMIT: "100"
+      MAX_DOWNLOAD_SECONDS: "30"
+      MAX_OUTPUT_MB: "1"
+      MAX_TEMP_MB: "3"
+      JOB_TTL_SECONDS: "60"
+      DOWNLOAD_TICKET_SECONDS: "10"
+      FRONTEND_ORIGINS: http://localhost:5173
+      TMPDIR: /tmp/yt-dlp
+      DOWNLOAD_TMP_DIR: /tmp/downloads
+    depends_on:
+      fixture:
+        condition: service_healthy
+    networks:
+      controlled:
+        ipv4_address: 11.250.238.3
+  browser-api:
+    profiles: [browser]
+    image: video-audio-dl-backend:private-session
+    entrypoint: ["node", "/private-tests/browser-api.cjs"]
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    ports: ["127.0.0.1:43001:3000"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000
+    volumes:
+      - .:/private-tests:ro
+      - fixtures:/fixtures:ro
+    environment:
+      AUTH_REQUIRED: ${PRIVATE_SESSION_BROWSER_AUTH:-true}
+      ACCESS_CREDENTIAL: synthetic-browser-access-123456789
+      YOUTUBE_COOKIES_FILE: ${PRIVATE_SESSION_BROWSER_COOKIES-/fixtures/youtube-cookies.txt}
+      PRIVATE_SESSION_BROWSER_HEALTH_DELAY: ${PRIVATE_SESSION_BROWSER_HEALTH_DELAY:-0}
+      FRONTEND_ORIGINS: http://localhost:43000
+      TMPDIR: /tmp/yt-dlp
+      DOWNLOAD_TMP_DIR: /tmp/downloads
+      YTDLP_PATH: /private-tests/fake-downloader.py
+      MAX_DOWNLOAD_SECONDS: "30"
+      MAX_OUTPUT_MB: "1"
+      MAX_TEMP_MB: "3"
+      JOB_CREATE_LIMIT: "100"
+    depends_on:
+      fixture:
+        condition: service_healthy
+    networks:
+      controlled:
+        ipv4_address: 11.250.238.4
+      browser-access: {}
+volumes:
+  fixtures:
+networks:
+  browser-access: {}
+  controlled:
+    internal: true
+    ipam:
+      config:
+        - subnet: 11.250.238.0/24

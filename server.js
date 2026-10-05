@@ -9,6 +9,8 @@ const { spawn, spawnSync } = require("node:child_process");
 const { randomUUID, randomBytes, createHash, timingSafeEqual } = require("node:crypto");
 const { publicWebUrl, resolvePublicHost } = require("./network-policy");
 const { createEgressProxy } = require("./egress-proxy");
+const { PrivateSession, usesYoutubeSession, MAX_COOKIE_BYTES } = require("./private-session");
+const { openMedia } = require("./media-output");
 
 const PORT = integerEnv("PORT", 3000, 1, 65535);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -23,18 +25,28 @@ const AUTH_FAILURE_LIMIT = integerEnv("AUTH_FAILURE_LIMIT", 10, 1, 1000);
 const JOB_CREATE_LIMIT = integerEnv("JOB_CREATE_LIMIT", 5, 1, 1000);
 const AUTH_REQUIRED = booleanEnv("AUTH_REQUIRED", false);
 const ACCESS_CREDENTIAL = process.env.ACCESS_CREDENTIAL || "";
+const SOURCE_SESSION = Boolean(process.env.YOUTUBE_COOKIES_FILE);
+if (SOURCE_SESSION) {
+  // Fatal configuration/runtime errors must not print exceptions carrying secrets.
+  const fatal = () => { process.stderr.write('{"event":"fatal_failed","reason":"configuration_or_runtime_invalid"}\n'); process.exit(1); };
+  process.on("uncaughtException", fatal);
+  process.on("unhandledRejection", fatal);
+}
+if (SOURCE_SESSION && !AUTH_REQUIRED) throw new Error("E_SESSION_REQUIRES_AUTH");
 if (AUTH_REQUIRED && (ACCESS_CREDENTIAL.length < 24 || /[\s\u0000-\u001f\u007f]/.test(ACCESS_CREDENTIAL))) {
   throw new Error("Set ACCESS_CREDENTIAL to at least 24 characters without whitespace before starting the API.");
 }
 const credentialDigest = AUTH_REQUIRED ? createHash("sha256").update(ACCESS_CREDENTIAL).digest() : null;
 const allowedOrigins = new Set((process.env.FRONTEND_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean));
 for (const origin of allowedOrigins) {
-  const parsed = new URL(origin);
+  let parsed;
+  try { parsed = new URL(origin); } catch { throw new Error("E_FRONTEND_ORIGIN"); }
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.origin !== origin || parsed.username || parsed.password) {
     throw new Error("FRONTEND_ORIGINS must contain exact HTTP/HTTPS origins without paths or wildcards.");
   }
 }
 const TEMP_ROOT = path.resolve(process.env.DOWNLOAD_TMP_DIR || path.join(os.tmpdir(), "video-audio-dl"));
+const cookieSession = new PrivateSession({ source: process.env.YOUTUBE_COOKIES_FILE || "", privateRoot: path.join(process.env.TMPDIR || os.tmpdir(), "video-audio-dl-cookie-jars"), mediaRoot: TEMP_ROOT, repositoryRoot: __dirname });
 const YTDLP = process.env.YTDLP_PATH || "/usr/local/bin/yt-dlp";
 const FFMPEG = process.env.FFMPEG_PATH || "/usr/bin/ffmpeg";
 const SANDBOX = process.env.DOWNLOAD_SANDBOX_PATH || "/usr/local/bin/download-sandbox";
@@ -47,6 +59,7 @@ const jobAttempts = new Map();
 let pendingJobs = 0;
 let server;
 let egressProxy;
+let shuttingDown = false;
 
 function booleanEnv(name, fallback) {
   const raw = process.env[name];
@@ -223,7 +236,7 @@ function signalDownload(child, signal) {
     if (process.platform === "win32") child.kill(signal);
     else process.kill(-child.pid, signal);
   } catch (error) {
-    if (error.code !== "ESRCH") process.stderr.write(`Could not stop download process: ${error.code}\n`);
+    if (error.code !== "ESRCH") process.stderr.write(SOURCE_SESSION ? '{"event":"process_stop_failed","reason":"termination_failed"}\n' : `Could not stop download process: ${error.code}\n`);
   }
 }
 
@@ -249,6 +262,10 @@ function downloadFailure(diagnostics) {
 }
 
 function logDownloadFailure(job, code, reason) {
+  if (SOURCE_SESSION) {
+    process.stderr.write(`${JSON.stringify({ event: "download_failed", jobId: job.id, kind: job.kind, exitCode: Number.isInteger(code) ? code : null, reason })}\n`);
+    return;
+  }
   let diagnostics = job.diagnostics;
   if (ACCESS_CREDENTIAL) diagnostics = diagnostics.split(ACCESS_CREDENTIAL).join("[redacted]");
   // Keep signed source URLs and internal proxy credentials out of host logs.
@@ -259,20 +276,53 @@ function logDownloadFailure(job, code, reason) {
 }
 
 function runDownload(job, url) {
-  const outputTemplate = path.join(job.directory, "%(title).120B [%(id)s].%(ext)s");
+  job.completion = executeDownload(job, url).catch(async () => {
+    try { await stopProcessGroup(job.child); job.child = null; await cookieSession.release(job.id); await removeJobFiles(job); }
+    catch { if (job.child) cookieSession.unsafeProcesses = true; }
+    job.status = "failed";
+    job.message = "No se pudo completar la descarga de forma segura.";
+    job.diagnostics = "";
+    process.stderr.write(`${JSON.stringify({ event: "download_failed", jobId: job.id, kind: job.kind, exitCode: null, reason: "cleanup_failed" })}\n`);
+    activeJobs.delete(job.id);
+  });
+}
+
+async function totalTemporaryBytes() { return await directoryBytes(TEMP_ROOT) + await directoryBytes(cookieSession.root); }
+
+async function stopProcessGroup(child) {
+  if (!child?.pid) return;
+  signalDownload(child, "SIGKILL");
+  const deadline = Date.now() + 2500;
+  do {
+    let live = false;
+    for (const entry of await fsp.readdir("/proc")) {
+      if (!/^\d+$/.test(entry)) continue;
+      const stat = await fsp.readFile(`/proc/${entry}/stat`, "utf8").catch(() => "");
+      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      if (Number(fields[2]) === child.pid && !["Z", "X", ""].includes(fields[0])) { live = true; break; }
+    }
+    if (!live) return;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  } while (Date.now() < deadline);
+  throw new Error("E_DOWNLOAD_PROCESS");
+}
+
+async function executeDownload(job, url) {
+  const outputTemplate = path.join(job.directory, SOURCE_SESSION ? `${job.kind}-${job.id}.%(ext)s` : "%(title).120B [%(id)s].%(ext)s");
   const args = [
     "--ignore-config", "--no-color", "--newline", "--no-playlist",
     "--max-filesize", String(MAX_OUTPUT_BYTES),
     "--progress-template", "download:DL_PROGRESS:%(progress.percent)s:%(progress.eta)s",
     "--print", "after_move:APP_OUTPUT:%(filepath)s",
-    "--restrict-filenames", "--remux-video", "mp4", "--ffmpeg-location", FFMPEG,
+    "--restrict-filenames", "--ffmpeg-location", FFMPEG,
     "--postprocessor-args", "ffmpeg_i:-protocol_whitelist file,pipe,crypto,data,concat", "-o", outputTemplate
   ];
   if (job.kind === "video") {
-    args.push("-f", "bv*+ba/b", "--merge-output-format", "mp4");
+    args.push("-f", "bv*+ba/b", "--merge-output-format", "mp4", "--remux-video", "mp4");
   } else {
     args.push("-x", "--audio-format", "mp3", "--audio-quality", "0");
   }
+  if (job.cookiePath) args.push("--cookies", job.cookiePath);
   args.push(url);
 
   const session = egressProxy.createSession();
@@ -282,7 +332,9 @@ function runDownload(job, url) {
     TMPDIR: process.env.TMPDIR || os.tmpdir(), LANG: "C.UTF-8",
     PYTHONDONTWRITEBYTECODE: "1", ...session.env
   };
-  const child = spawn(SANDBOX, [YTDLP, ...args], { cwd: job.directory, env, shell: false, windowsHide: true, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+  let child;
+  try { child = spawn(SANDBOX, [YTDLP, ...args], { cwd: job.directory, env, shell: false, windowsHide: true, detached: true, stdio: ["ignore", "pipe", "pipe"] }); }
+  catch { await cookieSession.release(job.id); await removeJobFiles(job); job.status = "failed"; job.message = "No se pudo iniciar el servicio de descarga."; return; }
   job.child = child;
   job.status = "running";
   job.message = "Conectando con el sitio…";
@@ -291,15 +343,15 @@ function runDownload(job, url) {
     job.timedOut = true;
     session.close();
     signalDownload(child, "SIGTERM");
-    setTimeout(() => signalDownload(child, "SIGKILL"), 2000).unref();
+    job.killTimer = setTimeout(() => signalDownload(child, "SIGKILL"), 2000); job.killTimer.unref();
   }, MAX_DURATION_MS);
   job.sizeTimer = setInterval(async () => {
     try {
-      if (await directoryBytes(job.directory) > MAX_OUTPUT_BYTES || await directoryBytes(TEMP_ROOT) > MAX_TEMP_BYTES) {
+      if (await directoryBytes(job.directory) > MAX_OUTPUT_BYTES || await totalTemporaryBytes() > MAX_TEMP_BYTES) {
         job.tooLarge = true;
         session.close();
         signalDownload(child, "SIGTERM");
-        setTimeout(() => signalDownload(child, "SIGKILL"), 2000).unref();
+        if (!job.killTimer) { job.killTimer = setTimeout(() => signalDownload(child, "SIGKILL"), 2000); job.killTimer.unref(); }
       }
     } catch { /* the job may have been removed during cancellation */ }
   }, 2000);
@@ -307,53 +359,56 @@ function runDownload(job, url) {
   job.timer.unref();
 
   let stdoutCarry = "";
+  let droppingLine = false;
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk) => {
-    const lines = (stdoutCarry + chunk).split(/\r?\n/);
-    stdoutCarry = lines.pop() || "";
-    for (const line of lines) addOutputLine(job, line);
+    for (const part of chunk.match(/[^\n]*\n|[^\n]+$/g) || []) {
+      const ends = part.endsWith("\n");
+      if (!droppingLine) {
+        if (stdoutCarry.length + part.length > 8192) { stdoutCarry = ""; droppingLine = true; }
+        else stdoutCarry += part;
+      }
+      if (ends) { if (!droppingLine) addOutputLine(job, stdoutCarry.replace(/\r?\n$/, "")); stdoutCarry = ""; droppingLine = false; }
+    }
   });
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => {
     job.diagnostics = (job.diagnostics + chunk).slice(-12000);
   });
 
-  child.on("error", async () => {
+  let launchFailed = false;
+  child.on("error", () => { launchFailed = true; });
+  const code = await new Promise(resolve => child.once("close", resolve));
     session.close();
-    activeJobs.delete(job.id);
-    job.status = "failed";
-    job.message = `No se pudo iniciar el servicio de descarga. Comprueba que ${path.basename(YTDLP)} esté instalado en el servidor.`;
-    await removeJobFiles(job);
-  });
-  child.on("close", async (code) => {
-    session.close();
-    activeJobs.delete(job.id);
-    job.child = null;
     if (job.timer) clearTimeout(job.timer);
     if (job.sizeTimer) clearInterval(job.sizeTimer);
-    if (stdoutCarry) addOutputLine(job, stdoutCarry);
+    if (job.killTimer) clearTimeout(job.killTimer);
+    if (stdoutCarry && !droppingLine) addOutputLine(job, stdoutCarry);
+    await stopProcessGroup(child);
+    job.child = null;
+    try { await cookieSession.release(job.id); }
+    catch {
+      job.status = "failed"; job.message = "El servicio no pudo completar la limpieza. Intentá nuevamente más tarde.";
+      job.diagnostics = ""; await removeJobFiles(job); activeJobs.delete(job.id);
+      logDownloadFailure(job, code, "cleanup_failed"); return;
+    }
     if (job.status === "cancelled") {
       await removeJobFiles(job);
-      return;
-    }
-    if (job.timedOut) {
+    } else if (launchFailed) {
+      job.status = "failed"; job.message = "No se pudo iniciar el servicio de descarga.";
+    } else if (job.timedOut) {
       job.status = "failed";
       job.message = "La descarga superó el tiempo máximo permitido.";
     } else if (job.tooLarge) {
       job.status = "failed";
       job.message = "El archivo supera el límite de tamaño configurado.";
     } else if (code === 0 && job.outputPath) {
-      const resolved = path.resolve(job.outputPath);
-      const relative = path.relative(job.directory, resolved);
-      if (relative.startsWith("..") || path.isAbsolute(relative)) {
-        job.status = "failed";
-        job.message = "El servicio no pudo validar el archivo de salida.";
-      } else {
         try {
-          const stat = await fsp.stat(resolved);
-          if (!stat.isFile() || stat.size > MAX_OUTPUT_BYTES) throw new Error("invalid output");
-          job.outputPath = resolved;
-          job.filename = safeFilename(path.basename(resolved), job.kind);
+          const media = await openMedia(job, TEMP_ROOT, MAX_OUTPUT_BYTES);
+          await media.file.close();
+          job.outputIdentity = media.identity;
+          job.outputPath = media.target;
+          job.filename = SOURCE_SESSION ? `${job.kind}-${job.id}.${job.kind === "audio" ? "mp3" : "mp4"}` : safeFilename(path.basename(media.target), job.kind);
           job.status = "complete";
           job.progress = 100;
           job.message = "Tu archivo está listo.";
@@ -362,7 +417,6 @@ function runDownload(job, url) {
           job.status = "failed";
           job.message = "La descarga terminó sin generar un archivo válido.";
         }
-      }
     } else {
       job.status = "failed";
       const failure = downloadFailure(job.diagnostics);
@@ -370,16 +424,23 @@ function runDownload(job, url) {
       logDownloadFailure(job, code, failure.reason);
     }
     if (job.status === "failed") await removeJobFiles(job);
-  });
+    job.diagnostics = "";
+    job.cookiePath = null;
+    activeJobs.delete(job.id);
 }
 
 async function startJob(kind, url) {
+  if (shuttingDown) throw userError("El servicio se está reiniciando. Intentá nuevamente en unos minutos.", 503);
   if (kind !== "video" && kind !== "audio") throw userError("Elige video o audio.");
   if (activeJobs.size + pendingJobs >= MAX_CONCURRENT) throw userError("La app está ocupada. Espera a que termine una descarga y vuelve a intentar.", 429);
   pendingJobs += 1;
   try {
     const safeUrl = await validateUrl(url);
-    if (await directoryBytes(TEMP_ROOT) + MAX_OUTPUT_BYTES > MAX_TEMP_BYTES) throw userError("No hay espacio temporal disponible. Volvé a intentarlo en unos minutos.", 429);
+    const withCookies = cookieSession.enabled && usesYoutubeSession(safeUrl);
+    if (cookieSession.enabled && new URL(safeUrl).protocol === "http:" && usesYoutubeSession(safeUrl.replace(/^http:/, "https:"))) throw userError("Usá un enlace HTTPS de YouTube.");
+    const usedBytes = await totalTemporaryBytes();
+    const reserve = MAX_OUTPUT_BYTES * pendingJobs + (withCookies ? MAX_COOKIE_BYTES : 0);
+    if (usedBytes + reserve > MAX_TEMP_BYTES) throw userError("No hay espacio temporal disponible. Volvé a intentarlo en unos minutos.", 429);
     const id = randomUUID();
     const directory = path.join(TEMP_ROOT, id);
     await fsp.mkdir(directory, { recursive: false, mode: 0o700 });
@@ -387,6 +448,16 @@ async function startJob(kind, url) {
       id, kind, directory, status: "queued", progress: null, etaSeconds: null,
       message: "Preparando la descarga…", diagnostics: "", createdAt: Date.now(), delivered: false
     };
+    try {
+      if (withCookies) job.cookiePath = await cookieSession.create(id, MAX_TEMP_BYTES - usedBytes - MAX_OUTPUT_BYTES * pendingJobs);
+    } catch {
+      await removeJobFiles(job);
+      throw userError("La sesión del servidor no está disponible de forma segura. Intentá nuevamente más tarde.", 503);
+    }
+    if (shuttingDown) {
+      await cookieSession.release(id); await removeJobFiles(job);
+      throw userError("El servicio se está reiniciando. Intentá nuevamente en unos minutos.", 503);
+    }
     jobs.set(id, job);
     runDownload(job, safeUrl);
     return job;
@@ -413,6 +484,7 @@ async function route(req, res) {
     authorize(req, res);
     limitJobCreation(req, res);
     const body = await readJson(req);
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !["kind", "url"].includes(key))) throw userError("La solicitud contiene campos no permitidos.");
     const job = await startJob(body.kind, body.url);
     return sendJson(res, 202, publicJob(job));
   }
@@ -434,13 +506,14 @@ async function route(req, res) {
     if (!job) throw userError("Esa descarga ya no está disponible. Envía el enlace otra vez.", 404);
     if (req.method === "POST" && filePart === "ticket") {
       if (job.status !== "complete" || job.delivered || !job.outputPath) throw userError("El archivo todavía no está listo o ya fue descargado.", 409);
-      const stat = await fsp.stat(job.outputPath).catch(() => null);
-      if (!stat?.isFile()) {
+      let media;
+      try { media = await openMedia(job, TEMP_ROOT, MAX_OUTPUT_BYTES); await media.file.close(); } catch {
         job.status = "failed";
         job.message = "El archivo temporal ya no está disponible. Prepará la descarga nuevamente.";
         await removeJobFiles(job);
         throw userError(job.message, 410);
       }
+      if (job.delivered || job.status !== "complete") throw userError("El archivo ya no está disponible.", 410);
       for (const [existing, ticket] of tickets) if (ticket.jobId === id) tickets.delete(existing);
       const value = randomBytes(32).toString("base64url");
       const expiresAt = Date.now() + TICKET_TTL_MS;
@@ -454,7 +527,9 @@ async function route(req, res) {
         job.message = "Descarga cancelada.";
         const child = job.child;
         signalDownload(child, "SIGTERM");
-        setTimeout(() => signalDownload(child, "SIGKILL"), 1500).unref();
+        job.egressSession?.close();
+        job.killTimer = setTimeout(() => signalDownload(child, "SIGKILL"), 1500); job.killTimer.unref();
+        await job.completion;
       } else {
         job.status = "cancelled";
         job.message = "Descarga cancelada.";
@@ -464,22 +539,23 @@ async function route(req, res) {
     }
     if (req.method === "GET" && filePart === "file") {
       if (job.status !== "complete" || job.delivered || !job.outputPath) throw userError("El archivo todavía no está listo o ya fue descargado.", 409);
-      job.delivered = true;
-      const stat = await fsp.stat(job.outputPath).catch(() => null);
-      if (!stat?.isFile()) {
+      let media;
+      try { media = await openMedia(job, TEMP_ROOT, MAX_OUTPUT_BYTES); } catch {
         await removeJobFiles(job);
         job.status = "failed";
         job.message = "El archivo temporal ya no está disponible.";
         throw userError(job.message, 410);
       }
+      if (job.delivered || job.status !== "complete") { await media.file.close(); throw userError("El archivo ya no está disponible.", 410); }
+      job.delivered = true;
       res.writeHead(200, {
         "Content-Type": job.kind === "audio" ? "audio/mpeg" : "video/mp4",
-        "Content-Length": stat.size,
+        "Content-Length": media.stat.size,
         "Content-Disposition": filenameHeader(job.filename),
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff"
       });
-      const stream = fs.createReadStream(job.outputPath);
+      const stream = media.file.createReadStream({ start: 0, autoClose: true });
       stream.on("error", () => res.destroy());
       stream.pipe(res);
       res.on("close", async () => {
@@ -528,9 +604,10 @@ function assertToolsAvailable() {
 }
 
 async function main() {
+  await cookieSession.initialize();
   assertToolsAvailable();
   await cleanStaleFiles();
-  egressProxy = await createEgressProxy(path.join(process.env.TMPDIR || os.tmpdir(), "video-audio-dl-proxy"));
+  egressProxy = await createEgressProxy(path.join(process.env.TMPDIR || os.tmpdir(), "video-audio-dl-proxy"), SOURCE_SESSION ? () => process.stderr.write('{"event":"proxy_failed","reason":"internal_proxy_error"}\n') : undefined);
   process.stdout.write("Downloader network sandbox and checked internal proxy ready\n");
   process.stdout.write("YouTube compatibility ready: local EJS, protected Node runtime, default clients\n");
   server = http.createServer((req, res) => {
@@ -541,7 +618,7 @@ async function main() {
       if (res.headersSent) return res.destroy();
       const status = Number.isInteger(error.status) ? error.status : 500;
       sendJson(res, status, { error: error.userMessage || "Ocurrió un error interno. Inténtalo nuevamente." });
-      if (status >= 500) process.stderr.write(`${error.stack || error}\n`);
+      if (status >= 500) process.stderr.write(SOURCE_SESSION ? '{"event":"request_failed","reason":"internal_error"}\n' : `${error.stack || error}\n`);
     });
   });
   server.headersTimeout = 15000;
@@ -552,20 +629,29 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`${error.message}\n`);
+  process.stderr.write(SOURCE_SESSION ? '{"event":"startup_failed","reason":"configuration_or_runtime_invalid"}\n' : `${error.message}\n`);
   egressProxy?.close();
   process.exitCode = 1;
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => {
+  process.on(signal, async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    server?.close();
     for (const job of jobs.values()) if (job.child) {
       const child = job.child;
       signalDownload(child, "SIGTERM");
-      setTimeout(() => signalDownload(child, "SIGKILL"), 1500).unref();
+      job.status = "cancelled"; job.egressSession?.close();
+      job.killTimer = setTimeout(() => signalDownload(child, "SIGKILL"), 1500); job.killTimer.unref();
     }
-    egressProxy?.close();
-    server?.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 3000).unref();
+    const deadline = setTimeout(() => process.exit(1), 10000); deadline.unref();
+    while (pendingJobs) await new Promise(resolve => setTimeout(resolve, 50));
+    await Promise.allSettled([...jobs.values()].map(job => job.completion));
+    await egressProxy?.close();
+    try { await cookieSession.retryCleanup(); } catch { process.stderr.write('{"event":"shutdown_failed","reason":"cleanup_failed"}\n'); process.exitCode = 1; }
+    clearTimeout(deadline);
+    server?.closeAllConnections();
+    if (!process.exitCode) process.exitCode = 0;
   });
 }
