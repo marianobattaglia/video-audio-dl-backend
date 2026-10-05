@@ -28,7 +28,7 @@ const ACCESS_CREDENTIAL = process.env.ACCESS_CREDENTIAL || "";
 const SOURCE_SESSION = Boolean(process.env.YOUTUBE_COOKIES_FILE);
 if (SOURCE_SESSION) {
   // Fatal configuration/runtime errors must not print exceptions carrying secrets.
-  const fatal = () => { process.stderr.write('{"event":"fatal_failed","reason":"configuration_or_runtime_invalid"}\n'); process.exit(1); };
+  const fatal = (error) => { logPrivateStartupFailure("fatal_failed", error, "configuration_or_runtime"); process.exit(1); };
   process.on("uncaughtException", fatal);
   process.on("unhandledRejection", fatal);
 }
@@ -60,6 +60,18 @@ let pendingJobs = 0;
 let server;
 let egressProxy;
 let shuttingDown = false;
+
+function logPrivateStartupFailure(event, error, stage) {
+  // Log only literal allowlisted metadata. Never serialize the exception,
+  // its message/stack, source path, file contents or environment values.
+  const codes = ["E_SESSION_REQUIRES_AUTH", "E_FRONTEND_ORIGIN", "E_PRIVATE_DIRECTORY", "E_COOKIE_LOCATION", "E_COOKIE_FORMAT", "E_COOKIE_CHANGED", "E_COOKIE_UNAVAILABLE"];
+  const candidate = error?.code || error?.message;
+  const code = codes.includes(candidate) ? candidate : "E_STARTUP_UNKNOWN";
+  const record = { event, reason: "configuration_or_runtime_invalid", stage, code };
+  const ioCode = error?.ioCode || error?.code;
+  if (["ENOENT", "EACCES", "EPERM"].includes(ioCode)) record.ioCode = ioCode;
+  process.stderr.write(`${JSON.stringify(record)}\n`);
+}
 
 function booleanEnv(name, fallback) {
   const raw = process.env[name];
@@ -609,10 +621,14 @@ function assertToolsAvailable() {
   }
 }
 
+let startupStage = "session_validation";
 async function main() {
   await cookieSession.initialize();
+  startupStage = "tool_validation";
   assertToolsAvailable();
+  startupStage = "media_cleanup";
   await cleanStaleFiles();
+  startupStage = "proxy_initialization";
   egressProxy = await createEgressProxy(path.join(process.env.TMPDIR || os.tmpdir(), "video-audio-dl-proxy"), SOURCE_SESSION ? () => process.stderr.write('{"event":"proxy_failed","reason":"internal_proxy_error"}\n') : undefined);
   process.stdout.write("Downloader network sandbox and checked internal proxy ready\n");
   process.stdout.write("YouTube compatibility ready: local EJS, protected Node runtime, default clients\n");
@@ -635,7 +651,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(SOURCE_SESSION ? '{"event":"startup_failed","reason":"configuration_or_runtime_invalid"}\n' : `${error.message}\n`);
+  if (SOURCE_SESSION) logPrivateStartupFailure("startup_failed", error, startupStage);
+  else process.stderr.write(`${error.message}\n`);
   egressProxy?.close();
   process.exitCode = 1;
 });

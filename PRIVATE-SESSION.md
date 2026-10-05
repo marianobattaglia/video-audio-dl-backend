@@ -44,6 +44,22 @@ Después de la calificación y autorización específica para una sesión real:
 
 El original no se modifica. Cada trabajo HTTPS admitido de YouTube usa una copia bajo `TMPDIR/video-audio-dl-cookie-jars/<UUID>/session.txt`, separada de `/tmp/downloads`. El jar conserva límites de dominio/path/expiración y fuerza Secure, también para cookies nuevas. Otros sitios no reciben esa sesión. La limpieza espera la terminación de descendientes; un fallo de borrado bloquea nuevos trabajos con cookies. El arranque elimina copias huérfanas antes de escuchar. En este modo no se publican títulos de origen ni diagnósticos libres.
 
+## Diagnosticar un rechazo de arranque sin divulgar secretos
+
+Con sesión configurada, `startup_failed` registra únicamente etapa y códigos permitidos, sin contenido del archivo, rutas, clave ni stack. `fatal_failed` usa la misma lista permitida. Un código desconocido queda como `E_STARTUP_UNKNOWN`; no se imprimen diagnósticos libres.
+
+| Código / etapa | Qué revisar |
+| --- | --- |
+| `E_COOKIE_UNAVAILABLE`, `ioCode=ENOENT` | Secret File creado y guardado, nombre exacto `youtube-cookies.txt` y variable `YOUTUBE_COOKIES_FILE=/etc/secrets/youtube-cookies.txt`. |
+| `E_COOKIE_UNAVAILABLE`, `ioCode=EACCES` o `EPERM` | Permisos de lectura del usuario de la aplicación en Render; no hacer público el archivo. |
+| `E_COOKIE_FORMAT` | Netscape, cabecera admitida, filas completas separadas por tabulaciones, solo dominios auténticos de YouTube y máximo 64 KiB. JSON, archivo vacío o cookies de otros dominios se rechazan. |
+| `E_COOKIE_LOCATION` | Fuente externa al repositorio, medios y árbol de copias privadas. |
+| `E_COOKIE_CHANGED` | Archivo modificado durante la lectura; terminar la actualización y volver a desplegar. |
+| `E_PRIVATE_DIRECTORY` | Ubicación y permisos de temporales; no se permiten árboles solapados o con alias. |
+| `E_STARTUP_UNKNOWN` en `tool_validation` | Disponibilidad de herramientas y aislamiento obligatorio del host. |
+
+Para compartir un fallo, copiar únicamente ese registro estructurado; nunca el contenido de Secret Files ni los valores privados del panel. Los códigos ayudan a identificar una causa, pero no acreditan por sí solos la calificación del host.
+
 ## Prueba local opcional
 
 Usar un archivo externo ficticio o una sesión explícitamente autorizada; las pruebas automatizadas ya generan fixtures sin datos personales. Para montar una fuente local, crear **fuera del repo** un override de Compose como este ejemplo y reemplazar solamente la ruta ficticia por una ruta absoluta externa:

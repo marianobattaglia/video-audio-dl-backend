@@ -71,7 +71,12 @@ class PrivateSession {
         if (length !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw safeError("E_COOKIE_CHANGED");
         return normalizeCookies(buffer.subarray(0, length));
       } finally { buffer.fill(0); }
-    } catch (error) { throw safeError(["E_COOKIE_LOCATION", "E_COOKIE_FORMAT", "E_COOKIE_CHANGED"].includes(error.code) ? error.code : "E_COOKIE_UNAVAILABLE"); }
+    } catch (error) {
+      const failure = safeError(["E_COOKIE_LOCATION", "E_COOKIE_FORMAT", "E_COOKIE_CHANGED"].includes(error.code) ? error.code : "E_COOKIE_UNAVAILABLE");
+      // Preserve only a known filesystem code, never its path-bearing message.
+      if (["ENOENT", "EACCES", "EPERM"].includes(error.code)) failure.ioCode = error.code;
+      throw failure;
+    }
     finally { await handle?.close(); }
   }
   async initialize() {
