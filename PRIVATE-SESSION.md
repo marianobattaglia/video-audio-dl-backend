@@ -23,7 +23,7 @@ Usá una cuenta de YouTube dedicada, sin datos personales ni privilegios adicion
 ## Configuración y calificación antes de cookies reales
 
 1. Publicar revisiones compatibles de ambos proyectos con autorización del operador. Mantener Docker Command vacío y el entrypoint, seccomp, proxy y validación TLS activos.
-2. Comenzar **sin cookies**, con `YOUTUBE_COOKIES_FILE` vacío, `AUTH_REQUIRED=true` y `ACCESS_CREDENTIAL` aleatoria. Generarla localmente con 32 bytes aleatorios y pegarla exclusivamente en Environment del backend; nunca como Docker ARG, archivo rastreado ni variable del frontend:
+2. Comenzar **sin cookies**, con `YOUTUBE_COOKIES_FILE` vacío, `AUTH_REQUIRED=true` y `ACCESS_CREDENTIAL` no vacía. Puede escribirse a mano, sin mínimo de longitud ni restricción de espacios. Para una sesión real se recomienda una clave aleatoria; este comando es opcional. Pegarla exclusivamente en Environment del backend; nunca como Docker ARG, archivo rastreado ni variable del frontend:
 
    ```sh
    node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))"

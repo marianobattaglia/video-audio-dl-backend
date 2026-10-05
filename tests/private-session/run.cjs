@@ -57,7 +57,7 @@ async function clean(id) { await waitFor(async () => !(await fs.stat(`/tmp/downl
       ["No session, access protected", { YOUTUBE_COOKIES_FILE: "" }, false],
       ["Session with valid protected access", {}, false],
       ["Session with open access refuses startup", { AUTH_REQUIRED: "false" }, true],
-      ["Session with invalid credential refuses startup", { ACCESS_CREDENTIAL: "short" }, true],
+      ["Session with missing credential refuses startup", { ACCESS_CREDENTIAL: "" }, true],
       ["Unavailable session refuses startup", { YOUTUBE_COOKIES_FILE: "/fixtures/unavailable-cookie-file.txt" }, true]
     ]) await test(name, () => start(env, rejected));
     await start();

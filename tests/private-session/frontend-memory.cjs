@@ -20,7 +20,7 @@ module.exports = async test => {
     const app = client(source, async (url, options) => { requests.push({ url, options }); return { ok: true, status: 200, headers: { get() { return "application/json"; } }, async json() { return { status: "ok" }; } }; });
     app.evaluate("setAccessMode(true)"); app.elements.get("#access-credential").value = "synthetic-memory-key";
     await app.context.request("/api/jobs", { method: "POST", body: { kind: "video", url: "https://fixture.test/media.mp4" } });
-    assert.equal(requests[0].options.headers.Authorization, "Bearer synthetic-memory-key"); assert(!requests[0].url.includes("synthetic-memory-key"));
+    assert.equal(requests[0].options.headers.Authorization, "BearerEncoded synthetic-memory-key"); assert(!requests[0].url.includes("synthetic-memory-key"));
     await app.context.request("/healthz", { health: true }); assert.equal(requests[1].options.headers.Authorization, undefined);
     app.evaluate("setAccessMode(false)"); assert.equal(app.elements.get("#access-credential").value, "");
     await app.context.request("/api/jobs"); assert.equal(requests[2].options.headers.Authorization, undefined);

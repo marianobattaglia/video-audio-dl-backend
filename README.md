@@ -23,7 +23,7 @@ Revisá los archivos antes de publicar. `.env` no debe aparecer en el commit del
 Requisitos: Docker Engine con contenedores Linux y Docker Compose v2. El runtime debe permitir filtros seccomp sin privilegios (`no_new_privs`). No se necesita NET_ADMIN, root ni modificar el firewall del host. El contenedor falla al iniciar si no puede instalar el aislamiento del descargador.
 
 1. Copiá `.env.example` a `.env`.
-2. Dejá `AUTH_REQUIRED=false` para acceso abierto. No necesitás definir una clave. Para habilitarla más adelante, usá `AUTH_REQUIRED=true` y configurá `ACCESS_CREDENTIAL` con una clave aleatoria de al menos 24 caracteres, sin espacios. Podés generar una desde Node:
+2. Dejá `AUTH_REQUIRED=false` para acceso abierto. No necesitás definir una clave. Para habilitarla más adelante, usá `AUTH_REQUIRED=true` y configurá `ACCESS_CREDENTIAL` con cualquier clave no vacía, escrita a mano si preferís. No hay mínimo de longitud ni restricción de espacios. Para una sesión real de YouTube se recomienda una clave aleatoria; generarla es opcional:
 
    ```sh
    node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))"
@@ -64,7 +64,7 @@ Docker Compose carga `.env`; Node directo y el host leen variables del proceso. 
 | Variable | Valor inicial / función |
 | --- | --- |
 | `AUTH_REQUIRED` | `false` por defecto: acceso abierto. `true`: exige clave. Solo admite esos dos valores; requiere reiniciar el backend tras cambiarlo. |
-| `ACCESS_CREDENTIAL` | Obligatoria solo con `AUTH_REQUIRED=true`; clave compartida de al menos 24 caracteres sin espacios. Se ignora en modo abierto. |
+| `ACCESS_CREDENTIAL` | Obligatoria solo con `AUTH_REQUIRED=true`; cualquier clave no vacía, sin mínimo de longitud ni restricción de espacios. Se ignora en modo abierto. |
 | `YOUTUBE_COOKIES_FILE` | Vacía por defecto. Ruta externa de runtime a un Secret File Netscape de YouTube, máximo 64 KiB. Exige `AUTH_REQUIRED=true` y clave válida; configuración insegura impide iniciar. |
 | `FRONTEND_ORIGINS` | Lista separada por comas de orígenes exactos, sin barra final, ruta ni wildcard. Sin valor, no se concede acceso cross-origin. |
 | `HOST` | `0.0.0.0`; escucha en todas las interfaces del contenedor. |

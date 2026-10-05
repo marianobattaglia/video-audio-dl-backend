@@ -33,8 +33,8 @@ if (SOURCE_SESSION) {
   process.on("unhandledRejection", fatal);
 }
 if (SOURCE_SESSION && !AUTH_REQUIRED) throw new Error("E_SESSION_REQUIRES_AUTH");
-if (AUTH_REQUIRED && (ACCESS_CREDENTIAL.length < 24 || /[\s\u0000-\u001f\u007f]/.test(ACCESS_CREDENTIAL))) {
-  throw new Error("Set ACCESS_CREDENTIAL to at least 24 characters without whitespace before starting the API.");
+if (AUTH_REQUIRED && !ACCESS_CREDENTIAL) {
+  throw new Error("Set a non-empty ACCESS_CREDENTIAL before starting the API.");
 }
 const credentialDigest = AUTH_REQUIRED ? createHash("sha256").update(ACCESS_CREDENTIAL).digest() : null;
 const allowedOrigins = new Set((process.env.FRONTEND_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean));
@@ -162,9 +162,15 @@ function authorize(req, res) {
   const key = req.socket.remoteAddress || "unknown";
   const entry = rateEntry(authFailures, key);
   if (entry.count >= AUTH_FAILURE_LIMIT) rateError(entry, res);
-  const match = (req.headers.authorization || "").match(/^Bearer ([^\s]+)$/);
-  const digest = createHash("sha256").update(match?.[1] || "").digest();
-  if (!match || !timingSafeEqual(digest, credentialDigest)) {
+  // Encode new clients' keys for HTTP transport; retain legacy Bearer clients.
+  const match = (req.headers.authorization || "").match(/^(Bearer|BearerEncoded) (.+)$/);
+  let supplied = match?.[2] || "";
+  let validEncoding = true;
+  if (match?.[1] === "BearerEncoded") {
+    try { supplied = decodeURIComponent(supplied); } catch { validEncoding = false; }
+  }
+  const digest = createHash("sha256").update(supplied).digest();
+  if (!match || !validEncoding || !timingSafeEqual(digest, credentialDigest)) {
     entry.count += 1;
     throw userError("Ingresá una clave de acceso válida.", 401);
   }
