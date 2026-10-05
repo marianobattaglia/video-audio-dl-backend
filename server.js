@@ -209,6 +209,12 @@ function publicJob(job) {
 }
 
 function addOutputLine(job, line) {
+  if (line.startsWith("APP_TITLE:")) {
+    try { job.titleFilename = titleFilename(JSON.parse(line.slice("APP_TITLE:".length)), job.kind); }
+    catch { /* Missing or malformed title keeps the generated fallback name. */ }
+    // Source titles are metadata for the authorized download, never log output.
+    return;
+  }
   const progress = line.match(/^DL_PROGRESS:([0-9]+(?:\.[0-9]+)?|NA):([0-9]+|NA)$/);
   if (progress) {
     job.progress = progress[1] === "NA" ? null : Math.min(100, Math.max(0, Number(progress[1])));
@@ -220,6 +226,28 @@ function addOutputLine(job, line) {
   if (line) {
     job.diagnostics = (job.diagnostics + line.slice(0, 1000) + "\n").slice(-12000);
   }
+}
+
+function titleFilename(value, kind) {
+  if (typeof value !== "string" || !value || value.length > 4096) return null;
+  const cleaned = value.normalize("NFKC")
+    .replace(/[\u0000-\u001f\u007f-\u009f\p{Cf}]/gu, " ")
+    .replace(/["\\/:*?<>|]/g, " ")
+    .replace(/\s+/gu, " ")
+    .replace(/^[ .]+|[ .]+$/g, "")
+    .replace(/\.(?:mp3|mp4|mkv|webm|m4a|opus)$/i, "");
+  let bounded = "";
+  let bytes = 0;
+  for (const character of cleaned) {
+    const size = Buffer.byteLength(character, "utf8");
+    if (bytes + size > 180) break;
+    bounded += character;
+    bytes += size;
+  }
+  const base = bounded.replace(/[ .]+$/g, "");
+  if (!base || base === "NA") return null;
+  const prefix = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(base) ? "Descarga - " : "";
+  return `${prefix}${base}${kind === "audio" ? ".mp3" : ".mp4"}`;
 }
 
 function safeFilename(filename, kind) {
@@ -384,6 +412,7 @@ async function executeDownload(job, url) {
     "--max-filesize", String(MAX_OUTPUT_BYTES),
     "--progress-template", "download:DL_PROGRESS:%(progress.percent)s:%(progress.eta)s",
     "--print", "after_move:APP_OUTPUT:%(filepath)s",
+    "--print", "after_move:APP_TITLE:%(title)j",
     "--restrict-filenames", "--ffmpeg-location", FFMPEG,
     "--postprocessor-args", "ffmpeg_i:-protocol_whitelist file,pipe,crypto,data,concat", "-o", outputTemplate
   ];
@@ -482,7 +511,7 @@ async function executeDownload(job, url) {
           await media.file.close();
           job.outputIdentity = media.identity;
           job.outputPath = media.target;
-          job.filename = SOURCE_SESSION ? `${job.kind}-${job.id}.${job.kind === "audio" ? "mp3" : "mp4"}` : safeFilename(path.basename(media.target), job.kind);
+          job.filename = job.titleFilename || (SOURCE_SESSION ? `${job.kind}-${job.id}.${job.kind === "audio" ? "mp3" : "mp4"}` : safeFilename(path.basename(media.target), job.kind));
           job.status = "complete";
           job.progress = 100;
           job.message = "Tu archivo está listo.";
@@ -500,6 +529,7 @@ async function executeDownload(job, url) {
     }
     if (job.status === "failed") await removeJobFiles(job);
     job.diagnostics = "";
+    delete job.titleFilename;
     job.cookiePath = null;
     activeJobs.delete(job.id);
 }
