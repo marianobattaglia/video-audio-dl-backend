@@ -36,6 +36,22 @@ Este ajuste apunta a compatibilidad completa, no promete desbloquear una IP ni a
 
 La imagen local `video-audio-dl-backend:youtube-ejs` se construyó correctamente: comprobó SHA-256 de ambos wheels, versiones compatibles y assets locales de EJS. No se ejecutaron pruebas automatizadas ni descargas para este ajuste.
 
+El usuario volvió a intentar el mismo enlace después de las instrucciones de despliegue y aportó, el 5 de octubre de 2026, `HTTP Error 429: Too Many Requests` al obtener la página, seguido por la verificación antibot. El rechazo persiste; no hay transferencia exitosa confirmada. Cambiar dependencias no ha demostrado resolverlo. No se capturó en ese registro el commit o las versiones del despliegue.
+
+Las siguientes opciones requieren una decisión operativa: dejar de insistir y comprobar más adelante si cesó el bloqueo (sin plazo garantizado), evaluar otra IP de salida mediante una región/host diferente, o incorporar una sesión autenticada. Otra región conserva la arquitectura en nube pero también usa rangos compartidos y puede ser rechazada; no garantiza descargas ni constituye una solución definitiva. Incorporar cookies exigiría adaptar el manejo de secretos y el diseño actual de enlaces públicos; no se implementó. Un proveedor de PO tokens no desbloquea por sí solo una IP ya bloqueada según los problemas conocidos de yt-dlp. No se modificó la red ni se creó un servicio adicional.
+
+#### Resultado de la prueba en otra región
+
+El usuario indicó que el servicio original está en Oregon y siguió la prueba propuesta en Virginia. Reportó de nuevo 429 al obtener la página y rechazo antibot para `bzhObFFhXiw`. Durante esa prueba, la lectura de la configuración pública de Vercel confirmó que el frontend apuntaba al servicio alternativo; la región se registra según el relato del usuario. La prueba de otra región no consiguió una descarga. El usuario decidió volver al backend original `https://video-audio-dl-backend.onrender.com`, registrado en la tabla de producción. Para aplicar ese destino al frontend alojado, actualizar `API_BASE_URL` en Vercel y generar un nuevo despliegue.
+
+#### Alternativa de sesión autenticada, pendiente de decisión
+
+Posible siguiente intento manteniendo nube y hosting Free: incorporar cookies de YouTube de una cuenta dedicada al backend. yt-dlp documenta cookies para autenticación y verificaciones, pero pueden caducar, fallar al trasladarlas a otra IP o provocar restricciones de la cuenta. No hay garantía de resolver este bloqueo. No se implementó ni se solicitó el contenido de las cookies.
+
+La propuesta concreta requiere aprobación de este alcance: una cuenta dedicada sin datos personales; un archivo secreto configurado directamente en Render, fuera de Git, frontend y logs; una copia temporal privada por trabajo para que yt-dlp pueda actualizar su cookie jar; eliminación al finalizar; uso restringido a YouTube; y acceso a la app protegido con AUTH_REQUIRED=true mientras se use esa sesión. El proxy y seccomp deben mantenerse. La feature quedaría opcional, desactivada cuando no haya cookies configuradas. Debe actualizarse OpenSpec antes de implementar porque el diseño actual no incorpora sesiones de origen.
+
+Referencias: [429 y cookies](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#http-error-429-too-many-requests-or-402-payment-required), [cuentas y cookies de YouTube](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies), [archivos secretos de Render](https://render.com/docs/configure-environment-variables#secret-files).
+
 Para publicarlo: hacé commit/push desde el repositorio del backend y en Render elegí **Manual Deploy → Deploy latest commit**. Conservá las variables actuales y Docker Command vacío. Buscá **“YouTube compatibility ready: local EJS, protected Node runtime, default clients”** y después repetí el enlace. Si falla, copiá la línea `download_failed` con las advertencias. El frontend no requiere cambios ni redeploy para este ajuste.
 
 Referencias: [verificación antibot e IP bloqueada](https://github.com/yt-dlp/yt-dlp/issues/3766), [clientes de YouTube](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube), [EJS y runtimes admitidos](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
@@ -82,10 +98,26 @@ Este listado todavía no se ejecutó en los despliegues. No sustituye la validac
 
 ## Comprobaciones realizadas durante la implementación
 
+### Verificación local sin cookies (5 de octubre de 2026)
+
+Se ejecutó una suite de 33 casos sobre la imagen actual con medios sintéticos, red Docker interna, 512 MiB de RAM y 0,1 CPU: todos pasaron. Cubre aislamiento, proxy/DNS/TLS, video/audio, entrega, cancelación, cuotas, limpieza y reinicio de la API; cinco casos ejercitan el cliente con DOM simulado. También pasaron dos comprobaciones adicionales de reinicio real del contenedor y rechazo de arranque sin seccomp: **35 casos aprobados**. Pico del contenedor de la suite final: 94,96 MiB, frente a 128,08 MiB en una ejecución previa. No usa cookies personales, secretos de usuario ni servicios desplegados.
+
+Para reproducir desde la raíz del backend:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tests/qualification/verify.ps1
+```
+
+Requiere Docker Desktop y el frontend hermano para los casos de cliente. El script incluye además rechazo del arranque sin seccomp y reinicio explícito del contenedor, guarda resultados JSON y elimina sus recursos temporales. Ver [alcance de las pruebas](tests/qualification/README.md) y [evidencia de calificación](HOST-QUALIFICATION.md).
+
+La evidencia local no completa la calificación de Render ni demuestra que YouTube acepte su IP. Los límites de producción y el recorrido con un navegador desplegado todavía requieren verificación.
+
+### Evidencia de etapas anteriores
+
 - Construcción de `video-audio-dl-frontend/` desde su propia raíz con un origen HTTPS de ejemplo; genera el sitio y `config.js` sin leer archivos del backend.
 - Revisión de sintaxis de la API, del cliente y de los scripts de construcción/desarrollo.
 - Revisión estática de separación de rutas, configuración pública frente a claves privadas, CORS, autorizaciones, permisos y estados de conexión.
 - Repositorios independientes publicados por el usuario en GitHub; frontend en Vercel según su confirmación.
 - Primer backend en Render: imagen construida; arranque rechazado por el firewall según el log aportado.
 
-La imagen original se construyó localmente tras corregir TMPDIR. La nueva imagen de proxy y aislamiento también se construyó: C compilado con advertencias tratadas como errores, checksum y versión de yt-dlp, soporte AES y revisión de sintaxis Python. No se ejecutaron pruebas automatizadas ni descargas con esta nueva implementación. Las tareas de medición y despliegue permanecen abiertas en OpenSpec.
+La imagen original se construyó localmente tras corregir TMPDIR. La nueva imagen de proxy y aislamiento también se construyó: C compilado con advertencias tratadas como errores, checksum y versión de yt-dlp, soporte AES y revisión de sintaxis Python. En esa etapa todavía no se habían ejecutado pruebas automatizadas ni descargas con esa implementación; la sección fechada anterior incorpora la verificación local posterior. Las tareas de medición en el host y despliegue permanecen abiertas en OpenSpec.

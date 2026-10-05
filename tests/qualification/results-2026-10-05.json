@@ -1,0 +1,205 @@
+{
+  "recordedAt": "2026-10-05T17:49:12.7740452Z",
+  "imageId": "sha256:796495781e966029a465f0d39cbc6651f1ca8ca749ac6299137bd3c1f94a7fbd",
+  "sourceRevision": "9f0cfd7200e11e35dcdf339d53606488381181e6",
+  "scope": "Local Docker; synthetic media; no cookies; no Render deployment qualification",
+  "suite": {
+    "summary": {
+      "passed": 33,
+      "failed": 0,
+      "environment": "Docker internal controlled network; no cookies",
+      "metrics": {
+        "memoryPeakBytes": "99569664",
+        "memoryEvents": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+        "cpuUsage": "usage_usec 8661046\nuser_usec 7101291\nsystem_usec 1559754\nnice_usec 0\nnr_periods 1550\nnr_throttled 780\nthrottled_usec 85434240\nnr_bursts 0\nburst_usec 0"
+      }
+    },
+    "results": [
+      {
+        "name": "Sandbox install, socket families and inherited Python",
+        "status": "pass",
+        "ms": 405
+      },
+      {
+        "name": "Inherited descriptors are closed before execution",
+        "status": "pass",
+        "ms": 294
+      },
+      {
+        "name": "Node cannot create a direct Internet connection",
+        "status": "pass",
+        "ms": 198
+      },
+      {
+        "name": "FFmpeg and FFprobe direct HTTP transfers fail",
+        "status": "pass",
+        "ms": 996
+      },
+      {
+        "name": "IP and URL policy",
+        "status": "pass",
+        "ms": 4
+      },
+      {
+        "name": "DNS rejects every nonpublic or mixed answer",
+        "status": "pass",
+        "ms": 0
+      },
+      {
+        "name": "Unix proxy permissions and missing authorization",
+        "status": "pass",
+        "ms": 7
+      },
+      {
+        "name": "Proxy blocks private literal and mixed DNS before connecting",
+        "status": "pass",
+        "ms": 95
+      },
+      {
+        "name": "Proxy forwards a controlled public-classified HTTP destination",
+        "status": "pass",
+        "ms": 3
+      },
+      {
+        "name": "DNS pinning and mismatched effective peer (injected transport)",
+        "status": "pass",
+        "ms": 1
+      },
+      {
+        "name": "Revoking a proxy session closes its tunnel and prevents reuse",
+        "status": "pass",
+        "ms": 3
+      },
+      {
+        "name": "Bundled EJS assets parse in Node under inherited seccomp and permissions",
+        "status": "pass",
+        "ms": 592
+      },
+      {
+        "name": "Client reports a lost job after restart and permits retry (simulated DOM)",
+        "status": "pass",
+        "ms": 1
+      },
+      {
+        "name": "Client distinguishes a lost output file (simulated DOM)",
+        "status": "pass",
+        "ms": 1
+      },
+      {
+        "name": "Wake request is shared and requires manual retry after waiting (simulated DOM)",
+        "status": "pass",
+        "ms": 1
+      },
+      {
+        "name": "Wake timeout ends the waiting state without creating jobs (simulated DOM)",
+        "status": "pass",
+        "ms": 0
+      },
+      {
+        "name": "Wake rejects provider HTML and preserves the URL (simulated DOM)",
+        "status": "pass",
+        "ms": 90
+      },
+      {
+        "name": "API starts as node with protections and expected health",
+        "status": "pass",
+        "ms": 4
+      },
+      {
+        "name": "API rejects private URLs, IPv6, mapped addresses and ports",
+        "status": "pass",
+        "ms": 697
+      },
+      {
+        "name": "CORS preflight and unknown origin rejection",
+        "status": "pass",
+        "ms": 100
+      },
+      {
+        "name": "video transfer, local postprocessing, ticket and cleanup: http://fixture.test/media.mp4",
+        "status": "pass",
+        "ms": 5499
+      },
+      {
+        "name": "audio transfer, local postprocessing, ticket and cleanup: https://fixture.test/media.mp4",
+        "status": "pass",
+        "ms": 7608
+      },
+      {
+        "name": "video transfer, local postprocessing, ticket and cleanup: http://fixture.test/redirect.mp4",
+        "status": "pass",
+        "ms": 5192
+      },
+      {
+        "name": "Private redirect is denied and cleaned",
+        "status": "pass",
+        "ms": 4654
+      },
+      {
+        "name": "HTTPS rejects a certificate for the wrong hostname",
+        "status": "pass",
+        "ms": 4097
+      },
+      {
+        "name": "Concurrency, cancellation and retry",
+        "status": "pass",
+        "ms": 9002
+      },
+      {
+        "name": "Known oversized source fails and cleans",
+        "status": "pass",
+        "ms": 4450
+      },
+      {
+        "name": "Growing temporary output is stopped and cleaned",
+        "status": "pass",
+        "ms": 8071
+      },
+      {
+        "name": "Temporary-space admission rejects before creating a job",
+        "status": "pass",
+        "ms": 28
+      },
+      {
+        "name": "30-second processing timeout stops and cleans",
+        "status": "pass",
+        "ms": 30186
+      },
+      {
+        "name": "Completed file expires without delivery",
+        "status": "pass",
+        "ms": 70236
+      },
+      {
+        "name": "Graceful API restart loses old jobs, cleans and allows retry",
+        "status": "pass",
+        "ms": 14371
+      },
+      {
+        "name": "Authentication validates direct clients independently of CORS",
+        "status": "pass",
+        "ms": 2202
+      }
+    ]
+  },
+  "additional": [
+    {
+      "name": "API refuses startup when seccomp installation is denied",
+      "status": "pass",
+      "exitCode": 1,
+      "network": "none"
+    },
+    {
+      "name": "Actual Docker container restart loses running/completed jobs, clears tmpfs and permits retry",
+      "status": "pass",
+      "supplementalChecks": [
+        "Expired ticket rejected",
+        "Oversized valid MP4 rejected and cleaned",
+        "Growing output reports size-quota failure and cleans"
+      ],
+      "restartPolicy": "unless-stopped",
+      "memoryLimitBytes": 536870912,
+      "nanoCpus": 100000000
+    }
+  ]
+}

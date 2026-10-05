@@ -1,0 +1,63 @@
+services:
+  fixture:
+    image: video-audio-dl-backend:local-qualification
+    user: "0:0"
+    entrypoint: ["node", "/qualification/fixture.cjs"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - .:/qualification:ro
+      - certificates:/fixtures
+    networks:
+      controlled:
+        ipv4_address: 11.250.237.2
+        aliases: [fixture.test, badcert.test]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+  verification:
+    image: video-audio-dl-backend:local-qualification
+    entrypoint: ["node", "/qualification/run.cjs"]
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    mem_limit: 512m
+    cpus: 0.1
+    tmpfs:
+      - /tmp/downloads:rw,noexec,nosuid,nodev,size=32m,uid=1000,gid=1000
+      - /tmp/yt-dlp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000
+    volumes:
+      - .:/qualification:ro
+      - certificates:/etc/ssl/certs:ro
+      - ../../../video-audio-dl-frontend/public:/frontend:ro
+    environment:
+      AUTH_REQUIRED: "false"
+      ACCESS_CREDENTIAL: ""
+      YOUTUBE_COOKIES_FILE: ""
+      JOB_CREATE_LIMIT: "100"
+      MAX_DOWNLOAD_SECONDS: "30"
+      MAX_OUTPUT_MB: "1"
+      MAX_TEMP_MB: "3"
+      JOB_TTL_SECONDS: "60"
+      DOWNLOAD_TICKET_SECONDS: "10"
+      FRONTEND_ORIGINS: http://localhost:5173
+    extra_hosts:
+      - mixed.test=11.250.237.2
+      - mixed.test=127.0.0.1
+    depends_on:
+      fixture:
+        condition: service_healthy
+    networks:
+      controlled:
+        ipv4_address: 11.250.237.3
+networks:
+  controlled:
+    internal: true
+    ipam:
+      config:
+        - subnet: 11.250.237.0/24
+volumes:
+  certificates:
