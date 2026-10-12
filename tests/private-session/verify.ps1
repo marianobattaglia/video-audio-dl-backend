@@ -10,6 +10,8 @@ try {
     & $DockerPath build -t video-audio-dl-backend:private-session -t video-audio-dl-backend:local-qualification .
     if ($LASTEXITCODE -ne 0) { throw 'Falló la construcción.' }
     $reports = @{}
+    $reports['suiteImageId'] = & $DockerPath image inspect --format '{{.Id}}' video-audio-dl-backend:private-session
+    if ($LASTEXITCODE -ne 0) { throw 'No se pudo registrar la imagen de las suites.' }
     foreach ($case in @(@('private-session', 'video-audio-dl-private-session-tests'), @('qualification', 'video-audio-dl-qualification'))) {
         & $DockerPath compose -p $case[1] -f "tests/$($case[0])/compose.yaml" up --abort-on-container-exit --exit-code-from verification
         if ($LASTEXITCODE -ne 0) { throw "Falló la suite $($case[0])." }
@@ -20,10 +22,17 @@ try {
         if (-not $line) { throw 'Suite incompleta.' }
         $reports[$case[0]] = "$line" | ConvertFrom-Json
     }
+    $reports['startupRestriction'] = & (Join-Path $PSScriptRoot '../qualification/verify-startup.ps1') -DockerPath $DockerPath
+    $reports['containerRestart'] = & (Join-Path $PSScriptRoot '../qualification/restart-container.ps1') -DockerPath $DockerPath
     $audit = & node tests/private-session/audit-build.cjs $DockerPath
     if ($LASTEXITCODE -ne 0) { throw 'Falló la auditoría de construcción.' }
     $reports['buildAudit'] = "$audit" | ConvertFrom-Json
     $reports['imageId'] = & $DockerPath image inspect --format '{{.Id}}' video-audio-dl-backend:private-session
+    if ($LASTEXITCODE -ne 0) { throw 'No se pudo registrar la imagen auditada.' }
+    $reports['recordedAt'] = (Get-Date).ToUniversalTime().ToString('o')
+    $repositoryRoot = (Get-Location).Path.Replace('\', '/')
+    $reports['sourceRevision'] = git -c "safe.directory=$repositoryRoot" rev-parse HEAD
+    if ($LASTEXITCODE -ne 0) { throw 'No se pudo registrar la revisión de origen.' }
     $reports['scope'] = 'Local, synthetic only; no deployment, real cookies, real YouTube or browser automation in this script'
     $reports | ConvertTo-Json -Depth 15 | Set-Content (Join-Path $PSScriptRoot 'results-latest.json') -Encoding UTF8
     Write-Host 'Verificación local completa. El recorrido de navegador se documenta por separado.'

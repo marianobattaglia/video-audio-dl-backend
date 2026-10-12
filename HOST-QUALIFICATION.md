@@ -1,5 +1,11 @@
 # Validación del host de backend
 
+## Estado actual — 7 de octubre de 2026
+
+La [revisión actual](tests/private-session/evidence-2026-10-07.md) registra **88 pruebas locales**, auditoría adicional y **17 comprobaciones públicas** aprobadas. El panel de Render confirmó el commit `09448ab`, Free Docker Oregon y `/healthz`; el navegador desplegado completó audio, video, cancelación y recuperación manual tras un reinicio real del servicio. La tarea de separación **3.4 está completada**.
+
+Las secciones siguientes conservan la cronología de etapas anteriores. No interpretar sus antiguos «no se ejecutaron pruebas» o «pendiente de publicación» como el estado actual. La matriz completa de fallos de red/cuotas continúa diferenciada: se ejecutó localmente, no mediante inyección en Render. CPU/RAM internas no son visibles en Free. El despliegue sin cookies previo a la sesión real no está acreditado retroactivamente. Las demás tareas mantienen sus criterios hasta resolver la revisión propuesta de las definiciones; no hay un archivo automático de features.
+
 ## Evidencia y estado
 
 El usuario publicó ambos repositorios en GitHub y confirmó el frontend funcionando en Vercel. El primer despliegue del backend en Render construyó y publicó la imagen, pero al arrancar registró:

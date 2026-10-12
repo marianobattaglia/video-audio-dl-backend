@@ -1,0 +1,492 @@
+﻿{
+    "private-session":  {
+                            "summary":  {
+                                            "passed":  47,
+                                            "failed":  0,
+                                            "scope":  "Synthetic session, injected DNS/downloader/faults, real API/seccomp; no real cookies or deployment"
+                                        },
+                            "results":  [
+                                            {
+                                                "name":  "Netscape, HttpOnly, Secure, host-only/path/expiration normalization",
+                                                "status":  "pass",
+                                                "ms":  1
+                                            },
+                                            {
+                                                "name":  "Initial session URL selection rejects HTTP, lookalikes and other sites",
+                                                "status":  "pass",
+                                                "ms":  0
+                                            },
+                                            {
+                                                "name":  "Source location and regular-file/size/readability checks are fail closed",
+                                                "status":  "pass",
+                                                "ms":  91
+                                            },
+                                            {
+                                                "name":  "An aliased media cleanup tree is rejected before touching the source",
+                                                "status":  "pass",
+                                                "ms":  97
+                                            },
+                                            {
+                                                "name":  "Private copies are distinct, exclusive, 0700/0600 and preserve source",
+                                                "status":  "pass",
+                                                "ms":  9
+                                            },
+                                            {
+                                                "name":  "Copy budget, invalid changed source and descriptor mutation fail safely",
+                                                "status":  "pass",
+                                                "ms":  93
+                                            },
+                                            {
+                                                "name":  "Injected deletion failure blocks new cookie jobs and retries safely",
+                                                "status":  "pass",
+                                                "ms":  98
+                                            },
+                                            {
+                                                "name":  "Startup sweeps orphan copies and preserves the provisioned source",
+                                                "status":  "pass",
+                                                "ms":  4
+                                            },
+                                            {
+                                                "name":  "Media descriptor validates type, size and identity",
+                                                "status":  "pass",
+                                                "ms":  3
+                                            },
+                                            {
+                                                "name":  "Media rejects traversal, private paths, wrong extension and invalid header",
+                                                "status":  "pass",
+                                                "ms":  93
+                                            },
+                                            {
+                                                "name":  "Media rejects symbolic links, hard links and linked directory components",
+                                                "status":  "pass",
+                                                "ms":  2
+                                            },
+                                            {
+                                                "name":  "Validated descriptor cannot be redirected to a source secret by path replacement",
+                                                "status":  "pass",
+                                                "ms":  2
+                                            },
+                                            {
+                                                "name":  "Frontend removes legacy session entry without reading or writing a credential",
+                                                "status":  "pass",
+                                                "ms":  87
+                                            },
+                                            {
+                                                "name":  "Frontend uses Authorization in protected mode, health omits it and open mode erases it",
+                                                "status":  "pass",
+                                                "ms":  1
+                                            },
+                                            {
+                                                "name":  "Policy is inherited, HTTPS/domain/path/expiry checked and redirect cookies recalculated",
+                                                "status":  "pass",
+                                                "ms":  1700
+                                            },
+                                            {
+                                                "name":  "Actual isolated launcher loads the cookie policy and transfers controlled media",
+                                                "status":  "pass",
+                                                "ms":  4097
+                                            },
+                                            {
+                                                "name":  "No session, access open",
+                                                "status":  "pass",
+                                                "ms":  1303
+                                            },
+                                            {
+                                                "name":  "No session, access protected",
+                                                "status":  "pass",
+                                                "ms":  1705
+                                            },
+                                            {
+                                                "name":  "Session with valid protected access",
+                                                "status":  "pass",
+                                                "ms":  1892
+                                            },
+                                            {
+                                                "name":  "Session with open access refuses startup",
+                                                "status":  "pass",
+                                                "ms":  900
+                                            },
+                                            {
+                                                "name":  "Session with missing credential refuses startup",
+                                                "status":  "pass",
+                                                "ms":  406
+                                            },
+                                            {
+                                                "name":  "Unavailable session refuses startup",
+                                                "status":  "pass",
+                                                "ms":  398
+                                            },
+                                            {
+                                                "name":  "Manually chosen short and spaced credentials preserve exact authorization",
+                                                "status":  "pass",
+                                                "ms":  3198
+                                            },
+                                            {
+                                                "name":  "Public health reveals readiness/auth only",
+                                                "status":  "pass",
+                                                "ms":  2
+                                            },
+                                            {
+                                                "name":  "Direct caller authorization, absent/forged allowed Origin and unknown Origin",
+                                                "status":  "pass",
+                                                "ms":  197
+                                            },
+                                            {
+                                                "name":  "Unsupported cookie/path/flags fields are rejected without echo",
+                                                "status":  "pass",
+                                                "ms":  203
+                                            },
+                                            {
+                                                "name":  "Session www.youtube.com video: copy, args/env, logs, ready-before-cleanup and single-use delivery (complete)",
+                                                "status":  "pass",
+                                                "ms":  1399
+                                            },
+                                            {
+                                                "name":  "Session youtu.be audio: copy, args/env, logs, ready-before-cleanup and single-use delivery (complete)",
+                                                "status":  "pass",
+                                                "ms":  1510
+                                            },
+                                            {
+                                                "name":  "Session www.youtube.com video: copy, args/env, logs, ready-before-cleanup and single-use delivery (title)",
+                                                "status":  "pass",
+                                                "ms":  693
+                                            },
+                                            {
+                                                "name":  "Non-YouTube jobs receive no cookie jar while session-mode logs stay private",
+                                                "status":  "pass",
+                                                "ms":  501
+                                            },
+                                            {
+                                                "name":  "Readable source title is sanitized while temporary output remains UUID based",
+                                                "status":  "pass",
+                                                "ms":  1500
+                                            },
+                                            {
+                                                "name":  "HTTP YouTube is rejected rather than using a source session",
+                                                "status":  "pass",
+                                                "ms":  3
+                                            },
+                                            {
+                                                "name":  "Adversarial result or failure failure cleans and never delivers secrets",
+                                                "status":  "pass",
+                                                "ms":  494
+                                            },
+                                            {
+                                                "name":  "Adversarial result or failure outside cleans and never delivers secrets",
+                                                "status":  "pass",
+                                                "ms":  503
+                                            },
+                                            {
+                                                "name":  "Adversarial result or failure symlink cleans and never delivers secrets",
+                                                "status":  "pass",
+                                                "ms":  501
+                                            },
+                                            {
+                                                "name":  "Adversarial result or failure hardlink cleans and never delivers secrets",
+                                                "status":  "pass",
+                                                "ms":  501
+                                            },
+                                            {
+                                                "name":  "Adversarial result or failure spawn-error cleans and never delivers secrets",
+                                                "status":  "pass",
+                                                "ms":  198
+                                            },
+                                            {
+                                                "name":  "Adversarial result or failure oversize cleans and never delivers secrets",
+                                                "status":  "pass",
+                                                "ms":  2134
+                                            },
+                                            {
+                                                "name":  "Adversarial result or failure jar-growth cleans and never delivers secrets",
+                                                "status":  "pass",
+                                                "ms":  2092
+                                            },
+                                            {
+                                                "name":  "A valid ticket cannot serve an output replaced with a secret link",
+                                                "status":  "pass",
+                                                "ms":  480
+                                            },
+                                            {
+                                                "name":  "Cancellation stops a hostile child before deleting its jar",
+                                                "status":  "pass",
+                                                "ms":  3497
+                                            },
+                                            {
+                                                "name":  "Timeout stops the process and clears the cookie jar",
+                                                "status":  "pass",
+                                                "ms":  32072
+                                            },
+                                            {
+                                                "name":  "Expired ticket refuses delivery without revealing session",
+                                                "status":  "pass",
+                                                "ms":  11520
+                                            },
+                                            {
+                                                "name":  "Injected cleanup failure blocks session jobs, then retries after repair",
+                                                "status":  "pass",
+                                                "ms":  1102
+                                            },
+                                            {
+                                                "name":  "Graceful shutdown kills descendants and clears jars; restarted API permits retry",
+                                                "status":  "pass",
+                                                "ms":  5198
+                                            },
+                                            {
+                                                "name":  "Abrupt host-like stop leaves a jar which startup removes before readiness",
+                                                "status":  "pass",
+                                                "ms":  2897
+                                            },
+                                            {
+                                                "name":  "Credential and job limits remain active",
+                                                "status":  "pass",
+                                                "ms":  3302
+                                            }
+                                        ]
+                        },
+    "suiteImageId":  "sha256:533d06893540e952bdb04099887552e34286c568dae39609d7527f3683d36528",
+    "startupRestriction":  {
+                               "name":  "API refuses startup when seccomp installation is denied",
+                               "status":  "pass",
+                               "exitCode":  1,
+                               "network":  "none"
+                           },
+    "sourceRevision":  "09448abce20c0db549c76530e8d17d181d861332",
+    "buildAudit":  {
+                       "status":  "pass",
+                       "trackedAndIgnored":  true,
+                       "layers":  {
+                                      "name":  "Docker context, metadata and every layer exclude runtime markers",
+                                      "status":  "pass",
+                                      "layers":  13,
+                                      "files":  12021
+                                  },
+                       "frontendPublicOnly":  true,
+                       "cspBeforeScripts":  true,
+                       "productionHttpsRequired":  true,
+                       "localLoopbackRequired":  true
+                   },
+    "imageId":  "sha256:8b9b3a4dbc06c542737a12253d53b28de7166c9892a5d9453433fce1e6e8d4cd",
+    "scope":  "Local, synthetic only; no deployment, real cookies, real YouTube or browser automation in this script",
+    "recordedAt":  "2026-10-07T23:28:02.5199407Z",
+    "containerRestart":  {
+                             "name":  "Actual Docker container restart loses running/completed jobs, clears tmpfs and permits retry",
+                             "status":  "pass",
+                             "supplementalChecks":  [
+                                                        "Expired ticket rejected",
+                                                        "Oversized valid MP4 rejected and cleaned",
+                                                        "Growing output reports size-quota failure and cleans"
+                                                    ],
+                             "restartPolicy":  "unless-stopped",
+                             "memoryLimitBytes":  536870912,
+                             "nanoCpus":  100000000
+                         },
+    "qualification":  {
+                          "summary":  {
+                                          "passed":  39,
+                                          "failed":  0,
+                                          "environment":  "Docker internal controlled network; no cookies",
+                                          "metrics":  {
+                                                          "memoryPeakBytes":  "119721984",
+                                                          "memoryEvents":  "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+                                                          "cpuUsage":  "usage_usec 10378100\nuser_usec 8566461\nsystem_usec 1811638\nnice_usec 0\nnr_periods 1868\nnr_throttled 938\nthrottled_usec 111657686\nnr_bursts 0\nburst_usec 0"
+                                                      }
+                                      },
+                          "results":  [
+                                          {
+                                              "name":  "Sandbox install, socket families and inherited Python",
+                                              "status":  "pass",
+                                              "ms":  505
+                                          },
+                                          {
+                                              "name":  "Inherited descriptors are closed before execution",
+                                              "status":  "pass",
+                                              "ms":  295
+                                          },
+                                          {
+                                              "name":  "Node cannot create a direct Internet connection",
+                                              "status":  "pass",
+                                              "ms":  302
+                                          },
+                                          {
+                                              "name":  "FFmpeg and FFprobe direct HTTP transfers fail",
+                                              "status":  "pass",
+                                              "ms":  1004
+                                          },
+                                          {
+                                              "name":  "IP and URL policy",
+                                              "status":  "pass",
+                                              "ms":  4
+                                          },
+                                          {
+                                              "name":  "DNS rejects every nonpublic or mixed answer",
+                                              "status":  "pass",
+                                              "ms":  1
+                                          },
+                                          {
+                                              "name":  "Unix proxy permissions and missing authorization",
+                                              "status":  "pass",
+                                              "ms":  7
+                                          },
+                                          {
+                                              "name":  "Proxy blocks private literal and mixed DNS before connecting",
+                                              "status":  "pass",
+                                              "ms":  96
+                                          },
+                                          {
+                                              "name":  "Proxy forwards a controlled public-classified HTTP destination",
+                                              "status":  "pass",
+                                              "ms":  4
+                                          },
+                                          {
+                                              "name":  "DNS pinning and mismatched effective peer (injected transport)",
+                                              "status":  "pass",
+                                              "ms":  2
+                                          },
+                                          {
+                                              "name":  "Revoking a proxy session closes its tunnel and prevents reuse",
+                                              "status":  "pass",
+                                              "ms":  92
+                                          },
+                                          {
+                                              "name":  "Bundled EJS assets parse in Node under inherited seccomp and permissions",
+                                              "status":  "pass",
+                                              "ms":  605
+                                          },
+                                          {
+                                              "name":  "Client reports a lost job after restart and permits retry (simulated DOM)",
+                                              "status":  "pass",
+                                              "ms":  1
+                                          },
+                                          {
+                                              "name":  "Client distinguishes a lost output file (simulated DOM)",
+                                              "status":  "pass",
+                                              "ms":  1
+                                          },
+                                          {
+                                              "name":  "Wake request is shared and requires manual retry after waiting (simulated DOM)",
+                                              "status":  "pass",
+                                              "ms":  1
+                                          },
+                                          {
+                                              "name":  "Wake timeout ends the waiting state without creating jobs (simulated DOM)",
+                                              "status":  "pass",
+                                              "ms":  1
+                                          },
+                                          {
+                                              "name":  "Wake rejects provider HTML and preserves the URL (simulated DOM)",
+                                              "status":  "pass",
+                                              "ms":  1
+                                          },
+                                          {
+                                              "name":  "Ready link uses a validated ticket and native navigation without file buffering",
+                                              "status":  "pass",
+                                              "ms":  1
+                                          },
+                                          {
+                                              "name":  "Expiring ticket refreshes and requires another explicit click",
+                                              "status":  "pass",
+                                              "ms":  1
+                                          },
+                                          {
+                                              "name":  "Untrusted ticket URLs and expired capabilities never become links",
+                                              "status":  "pass",
+                                              "ms":  83
+                                          },
+                                          {
+                                              "name":  "Reset discards a late ticket response",
+                                              "status":  "pass",
+                                              "ms":  1
+                                          },
+                                          {
+                                              "name":  "Page departure discards late ticket and clears the credential",
+                                              "status":  "pass",
+                                              "ms":  1
+                                          },
+                                          {
+                                              "name":  "Missing output while preparing the ticket shows an interruption",
+                                              "status":  "pass",
+                                              "ms":  1
+                                          },
+                                          {
+                                              "name":  "API starts as node with protections and expected health",
+                                              "status":  "pass",
+                                              "ms":  4
+                                          },
+                                          {
+                                              "name":  "API rejects private URLs, IPv6, mapped addresses and ports",
+                                              "status":  "pass",
+                                              "ms":  598
+                                          },
+                                          {
+                                              "name":  "CORS preflight and unknown origin rejection",
+                                              "status":  "pass",
+                                              "ms":  3
+                                          },
+                                          {
+                                              "name":  "video transfer, local postprocessing, ticket and cleanup: http://fixture.test/media.mp4",
+                                              "status":  "pass",
+                                              "ms":  7398
+                                          },
+                                          {
+                                              "name":  "audio transfer, local postprocessing, ticket and cleanup: https://fixture.test/media.mp4",
+                                              "status":  "pass",
+                                              "ms":  8799
+                                          },
+                                          {
+                                              "name":  "video transfer, local postprocessing, ticket and cleanup: http://fixture.test/redirect.mp4",
+                                              "status":  "pass",
+                                              "ms":  5900
+                                          },
+                                          {
+                                              "name":  "Private redirect is denied and cleaned",
+                                              "status":  "pass",
+                                              "ms":  5351
+                                          },
+                                          {
+                                              "name":  "HTTPS rejects a certificate for the wrong hostname",
+                                              "status":  "pass",
+                                              "ms":  5700
+                                          },
+                                          {
+                                              "name":  "Concurrency, cancellation and retry",
+                                              "status":  "pass",
+                                              "ms":  9748
+                                          },
+                                          {
+                                              "name":  "Known oversized source fails and cleans",
+                                              "status":  "pass",
+                                              "ms":  5352
+                                          },
+                                          {
+                                              "name":  "Growing temporary output is stopped and cleaned",
+                                              "status":  "pass",
+                                              "ms":  8215
+                                          },
+                                          {
+                                              "name":  "Temporary-space admission rejects before creating a job",
+                                              "status":  "pass",
+                                              "ms":  7
+                                          },
+                                          {
+                                              "name":  "30-second processing timeout stops and cleans",
+                                              "status":  "pass",
+                                              "ms":  30169
+                                          },
+                                          {
+                                              "name":  "Completed file expires without delivery",
+                                              "status":  "pass",
+                                              "ms":  92559
+                                          },
+                                          {
+                                              "name":  "Graceful API restart loses old jobs, cleans and allows retry",
+                                              "status":  "pass",
+                                              "ms":  17492
+                                          },
+                                          {
+                                              "name":  "Authentication validates direct clients independently of CORS",
+                                              "status":  "pass",
+                                              "ms":  2793
+                                          }
+                                      ]
+                      }
+}

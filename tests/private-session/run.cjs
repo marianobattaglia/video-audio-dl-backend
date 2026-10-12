@@ -51,6 +51,24 @@ async function clean(id) { await waitFor(async () => !(await fs.stat(`/tmp/downl
   await test("Policy is inherited, HTTPS/domain/path/expiry checked and redirect cookies recalculated", () => {
     const checked = spawnSync("/usr/local/bin/download-sandbox", ["/usr/bin/python3", "/private-tests/policy.py"], { encoding: "utf8", timeout: 30000 }); assert.equal(checked.status, 0, checked.stderr);
   });
+  await test("Actual isolated launcher loads the cookie policy and transfers controlled media", async () => {
+    const { createEgressProxy } = require("/app/egress-proxy");
+    const proxy = await createEgressProxy("/tmp/yt-dlp/actual-launcher-proxy");
+    const session = proxy.createSession();
+    const working = "/tmp/yt-dlp/actual-launcher-session.txt";
+    const original = await fs.readFile(source);
+    await fs.copyFile(source, working); await fs.chmod(working, 0o600);
+    try {
+      const worker = spawn("/usr/local/bin/download-sandbox", ["/usr/local/bin/yt-dlp", "--cookies", working,
+        "--simulate", "--skip-download", "--force-generic-extractor", "--no-playlist", "http://fixture.test/media.mp4"],
+        { env: { PATH: process.env.PATH, HOME: "/home/node", TMPDIR: "/tmp/yt-dlp", ...session.env }, stdio: ["ignore", "pipe", "pipe"] });
+      let diagnostic = "";
+      for (const stream of [worker.stdout, worker.stderr]) stream.on("data", chunk => { diagnostic = (diagnostic + chunk).slice(-8192); });
+      const [code] = await once(worker, "close");
+      assert.equal(code, 0, "Actual cookie-policy launcher did not complete the controlled request");
+      assert(!diagnostic.includes("ModuleNotFoundError")); assert.deepEqual(await fs.readFile(source), original);
+    } finally { session.close(); await proxy.close(); await fs.unlink(working).catch(() => {}); }
+  });
   try {
     for (const [name, env, rejected] of [
       ["No session, access open", { YOUTUBE_COOKIES_FILE: "", AUTH_REQUIRED: "false", ACCESS_CREDENTIAL: "" }, false],
@@ -60,6 +78,16 @@ async function clean(id) { await waitFor(async () => !(await fs.stat(`/tmp/downl
       ["Session with missing credential refuses startup", { ACCESS_CREDENTIAL: "" }, true],
       ["Unavailable session refuses startup", { YOUTUBE_COOKIES_FILE: "/fixtures/unavailable-cookie-file.txt" }, true]
     ]) await test(name, () => start(env, rejected));
+    await test("Manually chosen short and spaced credentials preserve exact authorization", async () => {
+      for (const manual of ["x", "  clave % ñ  "]) {
+        await start({ ACCESS_CREDENTIAL: manual });
+        const headers = { Authorization: `BearerEncoded ${encodeURIComponent(manual)}` };
+        const accepted = await request("/api/jobs", { method: "POST", body: { kind: "video", url: "http://127.0.0.1/" }, headers, authenticated: false });
+        assert.equal(accepted.status, 400);
+        const wrong = await request("/api/jobs", { method: "POST", body: {}, headers: { Authorization: "BearerEncoded wrong-synthetic-only" }, authenticated: false });
+        assert.equal(wrong.status, 401);
+      }
+    });
     await start();
     const sourceContents = await fs.readFile(source, "utf8");
     const sentinel = sourceContents.trim().split("\t").at(-1);
@@ -95,6 +123,15 @@ async function clean(id) { await waitFor(async () => !(await fs.stat(`/tmp/downl
       const id = await create("complete", "video", "https://fixture.test/media.mp4"); assert.equal((await terminal(id)).status, "complete");
       const audit = JSON.parse(await fs.readFile("/tmp/yt-dlp/fixture-audit.json", "utf8")); assert.equal(audit.cookieFile, null);
       await request(`/api/jobs/${id}`, { method: "DELETE" }); await clean(id); confidential(logs);
+    });
+    await test("Readable source title is sanitized while temporary output remains UUID based", async () => {
+      const id = await create("readable-title", "audio"); const job = await terminal(id);
+      assert.equal(job.status, "complete"); assert.equal(job.filename, "Canción de prueba ¿Qué tal.mp3");
+      assert.deepEqual(await fs.readdir(`/tmp/downloads/${id}`), [`audio-${id}.mp3`]);
+      const ticket = await request(`/api/jobs/${id}/ticket`, { method: "POST" }); assert.equal(ticket.data.filename, job.filename);
+      const delivered = await request(ticket.data.downloadUrl, { authenticated: false }); assert.equal(delivered.status, 200);
+      assert.match(delivered.headers.get("content-disposition"), /filename\*=UTF-8''Canci%C3%B3n/);
+      assert(!logs.includes("Canción")); confidential(logs); await clean(id);
     });
     await test("HTTP YouTube is rejected rather than using a source session", async () => { assert.equal((await request("/api/jobs", { method: "POST", body: { kind: "video", url: "http://www.youtube.com/watch" } })).status, 400); });
     for (const mode of ["failure", "outside", "symlink", "hardlink", "spawn-error", "oversize", "jar-growth"]) await test(`Adversarial result or failure ${mode} cleans and never delivers secrets`, async () => {

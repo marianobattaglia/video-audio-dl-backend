@@ -8,7 +8,7 @@ powershell -ExecutionPolicy Bypass -File tests/qualification/verify.ps1
 
 Duración aproximada: cuatro minutos más la construcción. No usa `.env`, secretos, cookies, enlaces de YouTube ni servicios desplegados. No publica puertos. Crea y elimina exclusivamente los recursos del proyecto Docker `video-audio-dl-qualification` y dos contenedores temporales con ese prefijo. Conserva la imagen local de prueba. No ejecutar dos verificaciones a la vez.
 
-Los cinco casos de cliente necesitan el repositorio hermano `video-audio-dl-frontend/public`. Ejecutan su código real con DOM, peticiones y temporizadores simulados; no reemplazan una prueba en un navegador. El backend sigue pudiendo construirse y desplegarse sin ese repositorio.
+Los once casos de cliente necesitan el repositorio hermano `video-audio-dl-frontend/public`. Ejecutan su código real con DOM, peticiones y temporizadores simulados; no reemplazan una prueba en un navegador. El backend sigue pudiendo construirse y desplegarse sin ese repositorio.
 
 ## Alcance
 
@@ -27,3 +27,13 @@ El script guarda un resumen JSON en `results-latest.json`. Los resultados de una
 La ejecución registrada del 5 de octubre de 2026 está en [results-2026-10-05.json](results-2026-10-05.json): 33 casos de suite y dos comprobaciones adicionales aprobadas. El informe no contiene cookies, claves reales ni diagnósticos de usuarios.
 
 Las pruebas no consultan destinos privados reales. Una prueba fallida debe investigarse; no se deben desactivar las protecciones para que pase.
+
+## Comprobaciones públicas separadas
+
+```powershell
+node tests/qualification/deployed-public.cjs
+```
+
+Este verificador consulta únicamente los despliegues originales de Vercel/Render, sin clave/cookies y sin crear trabajos. Comprueba TLS, cabeceras/CSP, assets públicos, CORS, autorización anónima y rutas no servidas. Guarda `results-deployed-public-latest.json` (ignorado). No lo ejecutar como monitor: las peticiones despiertan el backend y los rechazos consumen el límite de fallos de autorización; dejar al menos un minuto entre ejecuciones.
+
+El [resultado del 7 de octubre](results-deployed-public-2026-10-07.json) tiene **17/17** aprobados. La suite local actual tiene 39 casos más arranque restringido y reinicio. Sus resultados combinados con la sesión privada y la auditoría están en [la evidencia actual](../private-session/evidence-2026-10-07.md), que distingue pruebas locales, navegador real y criterios pendientes.

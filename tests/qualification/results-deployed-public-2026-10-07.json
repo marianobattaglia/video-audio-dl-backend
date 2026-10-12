@@ -1,0 +1,103 @@
+{
+  "recordedAt": "2026-10-07T22:57:22.478Z",
+  "frontend": "https://video-audio-dl.vercel.app",
+  "backend": "https://video-audio-dl-backend.onrender.com",
+  "scope": "Public deployment probes without credentials, cookie reads, downloads or provider changes",
+  "results": [
+    {
+      "name": "Vercel HTTPS and response security headers",
+      "status": "pass",
+      "ms": 202,
+      "statusCode": 200,
+      "tlsCertificateVerified": true
+    },
+    {
+      "name": "Generated CSP restricts connections to the configured API before scripts",
+      "status": "pass",
+      "ms": 0
+    },
+    {
+      "name": "Deployed public configuration contains only the intended API origin",
+      "status": "pass",
+      "ms": 50
+    },
+    {
+      "name": "Deployed client matches local source and has no credential persistence",
+      "status": "pass",
+      "ms": 152,
+      "sourceSha256": "9461107699380bee4858b5f130c1dde6071497e11ff48dc9e37bf633f0e33ef3"
+    },
+    {
+      "name": "Render HTTPS health exposes only readiness and authentication mode",
+      "status": "pass",
+      "ms": 313,
+      "tlsCertificateVerified": true,
+      "authRequired": true,
+      "activeDownloads": 0
+    },
+    {
+      "name": "Exact Vercel origin can read health",
+      "status": "pass",
+      "ms": 247
+    },
+    {
+      "name": "Unconfigured browser origin is denied",
+      "status": "pass",
+      "ms": 246
+    },
+    {
+      "name": "Allowed browser preflight permits protected operations",
+      "status": "pass",
+      "ms": 246
+    },
+    {
+      "name": "Authentication rejects anonymous creation without Origin",
+      "status": "pass",
+      "ms": 253
+    },
+    {
+      "name": "Authentication rejects anonymous creation with allowed Origin",
+      "status": "pass",
+      "ms": 194
+    },
+    {
+      "name": "Authentication rejects anonymous status",
+      "status": "pass",
+      "ms": 257
+    },
+    {
+      "name": "Authentication rejects anonymous cancellation",
+      "status": "pass",
+      "ms": 266
+    },
+    {
+      "name": "Authentication rejects anonymous ticket issuance",
+      "status": "pass",
+      "ms": 253
+    },
+    {
+      "name": "File delivery without a capability ticket is denied",
+      "status": "pass",
+      "ms": 248
+    },
+    {
+      "name": "Backend does not serve /.env",
+      "status": "pass",
+      "ms": 201
+    },
+    {
+      "name": "Backend does not serve /youtube-cookies.txt",
+      "status": "pass",
+      "ms": 244
+    },
+    {
+      "name": "Backend does not serve /server.js",
+      "status": "pass",
+      "ms": 191
+    }
+  ],
+  "summary": {
+    "passed": 17,
+    "failed": 0
+  }
+}

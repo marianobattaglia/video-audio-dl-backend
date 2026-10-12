@@ -4,11 +4,18 @@ const http = require("node:http");
 if (process.env.YOUTUBE_COOKIES_FILE === "disabled") process.env.YOUTUBE_COOKIES_FILE = "";
 // Optional test-only delayed health response exercises the real client's wake UI.
 const delay = Number(process.env.PRIVATE_SESSION_BROWSER_HEALTH_DELAY || 0);
-if (delay > 0) {
+const invalidHealth = process.env.PRIVATE_SESSION_BROWSER_HEALTH_RESPONSE === "html";
+if (delay > 0 || invalidHealth) {
   let pendingWake = true;
   const createServer = http.createServer;
   http.createServer = listener => createServer((req, res) => {
-    if (pendingWake && req.url === "/healthz" && req.headers.origin === "http://localhost:43000") { pendingWake = false; setTimeout(() => listener(req, res), delay); }
+    if (pendingWake && req.url === "/healthz" && req.headers.origin === "http://localhost:43000") {
+      pendingWake = false;
+      if (invalidHealth) {
+        res.writeHead(200, { "Content-Type": "text/html", "Access-Control-Allow-Origin": "http://localhost:43000" });
+        res.end("<!doctype html><title>Synthetic provider page</title>");
+      } else setTimeout(() => listener(req, res), delay);
+    }
     else listener(req, res);
   });
 }

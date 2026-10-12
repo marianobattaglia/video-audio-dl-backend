@@ -87,6 +87,7 @@ function tool(binary, args) {
     await fs.unlink("/tmp/yt-dlp/ejs-core.js"); await fs.unlink("/tmp/yt-dlp/ejs-lib.js");
   });
   await require("./frontend.cjs")(test);
+  await require("./frontend-ticket.cjs")(test);
   try {
     await start();
     await test("API starts as node with protections and expected health", async () => {

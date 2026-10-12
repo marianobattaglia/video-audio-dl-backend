@@ -60,4 +60,6 @@ elif audio:
     subprocess.run(["/usr/bin/ffmpeg", "-v", "error", "-i", "/tmp/yt-dlp/qualification-media.mp4", "-y", str(output)], check=True)
 else:
     shutil.copyfile("/tmp/yt-dlp/qualification-media.mp4", output)
+if mode == "readable-title":
+    print("APP_TITLE:" + json.dumps("Canción / de prueba: ¿Qué tal?"), flush=True)
 print("APP_OUTPUT:" + str(output), flush=True)
