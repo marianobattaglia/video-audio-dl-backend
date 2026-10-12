@@ -11,12 +11,19 @@ const { publicWebUrl, resolvePublicHost } = require("./network-policy");
 const { createEgressProxy } = require("./egress-proxy");
 const { PrivateSession, usesYoutubeSession, MAX_COOKIE_BYTES } = require("./private-session");
 const { openMedia } = require("./media-output");
+const { classify: classifyMediaUrl } = require("./playlist-links");
+const { PlaylistStore, fields: playlistFields } = require("./playlist-store");
+const { extractPreview, MAX_BYTES: PREVIEW_BYTES } = require("./playlist-preview");
+const { automaticDelivery } = require("./automatic-delivery");
+const { playlistArchive } = require("./playlist-archive");
 
 const PORT = integerEnv("PORT", 3000, 1, 65535);
 const HOST = process.env.HOST || "0.0.0.0";
 const MAX_CONCURRENT = integerEnv("MAX_CONCURRENT_DOWNLOADS", 1, 1, 20);
 const MAX_DURATION_MS = integerEnv("MAX_DOWNLOAD_SECONDS", 600, 30, 86400) * 1000;
 const JOB_TTL_MS = integerEnv("JOB_TTL_SECONDS", 300, 60, 86400) * 1000;
+const MAX_ZIP_BATCH_MS = integerEnv("MAX_ZIP_BATCH_SECONDS", 3600, 1, 86400) * 1000;
+const MAX_ARCHIVE_OPERATION_MS = integerEnv("MAX_ARCHIVE_OPERATION_SECONDS", 120, 1, 600) * 1000;
 const MAX_OUTPUT_BYTES = integerEnv("MAX_OUTPUT_MB", 64, 1, 200000) * 1024 * 1024;
 const MAX_TEMP_BYTES = integerEnv("MAX_TEMP_MB", 192, 1, 200000) * 1024 * 1024;
 const TICKET_TTL_MS = integerEnv("DOWNLOAD_TICKET_SECONDS", 60, 10, 300) * 1000;
@@ -56,10 +63,37 @@ const activeJobs = new Set();
 const tickets = new Map();
 const authFailures = new Map();
 const jobAttempts = new Map();
+const previewAttempts = new Map();
+const batchAttempts = new Map();
+const previewOperations = new Set();
 let pendingJobs = 0;
+let pendingOutputBytes = 0;
 let server;
 let egressProxy;
 let shuttingDown = false;
+const playlistStore = new PlaylistStore({ jobs, startJob, cancelJob, jobTtl: JOB_TTL_MS });
+const automatic = automaticDelivery({ store: playlistStore, tickets, open: job => openMedia(job, TEMP_ROOT, MAX_OUTPUT_BYTES),
+  remove: removeConsumedMedia, ticketTtl: TICKET_TTL_MS, jobTtl: JOB_TTL_MS, filenameHeader });
+const archives = playlistArchive({ store: playlistStore, root: TEMP_ROOT, maxBytes: MAX_TEMP_BYTES, jobTtl: JOB_TTL_MS,
+  ticketTtl: TICKET_TTL_MS, totalMs: MAX_ZIP_BATCH_MS, operationMs: MAX_ARCHIVE_OPERATION_MS, sandbox: SANDBOX,
+  openMedia: job => openMedia(job, TEMP_ROOT, MAX_OUTPUT_BYTES), removeMedia: removeConsumedMedia, reserve: reserveArchive,
+  stopProcessGroup, signalDownload, tickets, filenameHeader });
+
+async function reserveArchive(bytes) {
+  if (shuttingDown || activeJobs.size + pendingJobs >= MAX_CONCURRENT) throw userError("La app está ocupada. Comprobá el estado en unos minutos.", 429);
+  pendingJobs++; pendingOutputBytes += bytes;
+  const release = () => { pendingJobs--; pendingOutputBytes -= bytes; };
+  try {
+    if (await totalTemporaryBytes() + pendingOutputBytes > MAX_TEMP_BYTES) throw userError("No hay espacio para actualizar el ZIP. Podés finalizar un paquete parcial o descartar la tanda.", 429);
+    return release;
+  } catch (error) { release(); throw error; }
+}
+async function removeConsumedMedia(job) {
+  await removeJobFiles(job);
+  try { await fsp.lstat(job.directory); }
+  catch (error) { if (error.code === "ENOENT") return; throw error; }
+  throw userError("No se pudo confirmar la limpieza del archivo. Comprobá el estado antes de continuar.", 503);
+}
 
 function logPrivateStartupFailure(event, error, stage) {
   // Log only literal allowlisted metadata. Never serialize the exception,
@@ -106,14 +140,14 @@ function userError(message, status = 400) {
   return error;
 }
 
-async function readJson(req) {
+async function readJson(req, maxBytes = 8192) {
   if (!req.headers["content-type"]?.toLowerCase().startsWith("application/json")) {
     throw userError("La solicitud debe usar formato JSON.", 415);
   }
   let body = "";
   for await (const chunk of req) {
     body += chunk;
-    if (Buffer.byteLength(body) > 8192) throw userError("La solicitud es demasiado grande.", 413);
+    if (Buffer.byteLength(body) > maxBytes) throw userError("La solicitud es demasiado grande.", 413);
   }
   try { return JSON.parse(body); } catch { throw userError("La solicitud no contiene JSON válido."); }
 }
@@ -162,9 +196,9 @@ function rateEntry(map, key) {
   return entry;
 }
 
-function rateError(entry, res) {
+function rateError(entry, res, code) {
   res.setHeader("Retry-After", Math.max(1, Math.ceil((entry.expiresAt - Date.now()) / 1000)));
-  throw userError("Demasiados intentos. Volvé a intentarlo en unos minutos.", 429);
+  throw Object.assign(userError("Demasiados intentos. Volvé a intentarlo en unos minutos.", 429), code ? { code } : {});
 }
 
 function authorize(req, res) {
@@ -188,9 +222,9 @@ function authorize(req, res) {
   }
 }
 
-function limitJobCreation(req, res) {
+function limitJobCreation(req, res, knownAdmission = false) {
   const entry = rateEntry(jobAttempts, req.socket.remoteAddress || "unknown");
-  if (entry.count >= JOB_CREATE_LIMIT) rateError(entry, res);
+  if (entry.count >= JOB_CREATE_LIMIT) rateError(entry, res, knownAdmission ? "E_MEDIA_ADMISSION_RATE" : undefined);
   entry.count += 1;
 }
 
@@ -321,6 +355,7 @@ function privateDownloadDetails(job) {
 function downloadFailure(diagnostics) {
   // Suggestions and warnings can mention cookies even when login is unrelated.
   const errors = diagnostics.split(/\r?\n/).filter((line) => /^\s*ERROR:/i.test(line)).join("\n");
+  if (/E_SINGLE_MEDIA_ONLY/.test(errors)) return { reason: "playlist_required", message: "Ese enlace contiene una lista. Usá la selección de lista para preparar archivos separados." };
   if (/confirm.*(?:not a bot|not.*robot)|automated (?:requests|traffic)/i.test(errors)) {
     return {
       reason: "source_bot_check",
@@ -360,6 +395,7 @@ function downloadFailure(diagnostics) {
 }
 
 function logDownloadFailure(job, code, reason) {
+  job.failureReason = reason;
   if (SOURCE_SESSION) {
     process.stderr.write(`${JSON.stringify({ event: "download_failed", jobId: job.id, kind: job.kind, exitCode: Number.isInteger(code) ? code : null, reason, ...privateDownloadDetails(job) })}\n`);
     return;
@@ -539,12 +575,16 @@ async function startJob(kind, url) {
   if (kind !== "video" && kind !== "audio") throw userError("Elige video o audio.");
   if (activeJobs.size + pendingJobs >= MAX_CONCURRENT) throw userError("La app está ocupada. Espera a que termine una descarga y vuelve a intentar.", 429);
   pendingJobs += 1;
+  const reserved = MAX_OUTPUT_BYTES + (SOURCE_SESSION ? MAX_COOKIE_BYTES : 0);
+  pendingOutputBytes += reserved;
   try {
-    const safeUrl = await validateUrl(url);
+    const classification = classifyMediaUrl(url);
+    if (["playlist", "unsupported"].includes(classification.type)) throw userError("Ese enlace es una lista o no identifica una canción. Usá la selección de lista o pegá un enlace individual.");
+    const safeUrl = await validateUrl(classification.url || url);
     const withCookies = cookieSession.enabled && usesYoutubeSession(safeUrl);
     if (cookieSession.enabled && new URL(safeUrl).protocol === "http:" && usesYoutubeSession(safeUrl.replace(/^http:/, "https:"))) throw userError("Usá un enlace HTTPS de YouTube.");
     const usedBytes = await totalTemporaryBytes();
-    const reserve = MAX_OUTPUT_BYTES * pendingJobs + (withCookies ? MAX_COOKIE_BYTES : 0);
+    const reserve = pendingOutputBytes;
     if (usedBytes + reserve > MAX_TEMP_BYTES) throw userError("No hay espacio temporal disponible. Volvé a intentarlo en unos minutos.", 429);
     const id = randomUUID();
     const directory = path.join(TEMP_ROOT, id);
@@ -554,7 +594,7 @@ async function startJob(kind, url) {
       message: "Preparando la descarga…", diagnostics: "", createdAt: Date.now(), delivered: false
     };
     try {
-      if (withCookies) job.cookiePath = await cookieSession.create(id, MAX_TEMP_BYTES - usedBytes - MAX_OUTPUT_BYTES * pendingJobs);
+      if (withCookies) job.cookiePath = await cookieSession.create(id, MAX_TEMP_BYTES - usedBytes - pendingOutputBytes + MAX_COOKIE_BYTES);
     } catch {
       await removeJobFiles(job);
       throw userError("La sesión del servidor no está disponible de forma segura. Intentá nuevamente más tarde.", 503);
@@ -568,7 +608,60 @@ async function startJob(kind, url) {
     return job;
   } finally {
     pendingJobs -= 1;
+    pendingOutputBytes -= reserved;
   }
+}
+
+async function cancelJob(job) {
+  if (job.deliveryInProgress) return;
+  if (job.child && job.status === "running") {
+    job.status = "cancelled"; job.message = "Descarga cancelada.";
+    const child = job.child; signalDownload(child, "SIGTERM"); job.egressSession?.close();
+    job.killTimer = setTimeout(() => signalDownload(child, "SIGKILL"), 1500); job.killTimer.unref();
+    await job.completion;
+  } else {
+    job.status = "cancelled"; job.message = "Descarga cancelada.";
+    await job.completion; await removeJobFiles(job);
+  }
+}
+
+function limitOperation(req, res, map, maximum) {
+  const entry = rateEntry(map, req.socket.remoteAddress || "unknown");
+  if (entry.count >= maximum) rateError(entry, res);
+  entry.count += 1;
+}
+
+async function previewPlaylist(req, res, body) {
+  const navigation = body && Object.hasOwn(body, "previewId") ? playlistStore.pageRequest(body) : null;
+  if (!navigation) playlistFields(body, ["url"]);
+  if (navigation?.cached) return sendJson(res, 200, playlistStore.publicPage(navigation.preview, navigation.token));
+  limitOperation(req, res, previewAttempts, 3);
+  const classification = classifyMediaUrl(navigation ? navigation.preview.url : body.url);
+  if (classification.type !== "playlist") throw userError("Pegá una playlist fija HTTPS de YouTube o YouTube Music.");
+  if (shuttingDown) throw userError("El servicio se está reiniciando.", 503);
+  if (activeJobs.size + pendingJobs >= MAX_CONCURRENT) throw userError("La app está ocupada. Intentá nuevamente al terminar la descarga.", 429);
+  playlistStore.sweep();
+  if (!navigation && playlistStore.previews.size >= 20) throw userError("Hay demasiadas listas abiertas. Volvé a intentar en unos minutos.", 429);
+  const controller = new AbortController();
+  const onClose = () => { if (!res.writableFinished) controller.abort(); };
+  res.once("close", onClose);
+  const reserved = PREVIEW_BYTES + (SOURCE_SESSION ? MAX_COOKIE_BYTES : 0);
+  pendingJobs += 1; pendingOutputBytes += reserved;
+  try {
+    const url = await validateUrl(classification.url), used = await totalTemporaryBytes();
+    if (used + pendingOutputBytes > MAX_TEMP_BYTES) throw userError("No hay espacio temporal para consultar la lista.", 429);
+    if (shuttingDown) controller.abort();
+    const metadata = await extractPreview({ url, host: classification.host, root: TEMP_ROOT, cookieSession,
+      withCookies: cookieSession.enabled && usesYoutubeSession(url), availableBytes: MAX_TEMP_BYTES - used - pendingOutputBytes + MAX_COOKIE_BYTES,
+      proxy: egressProxy, sandbox: SANDBOX, downloader: YTDLP, tmpdir: process.env.TMPDIR || os.tmpdir(),
+      stopProcessGroup, signalDownload, signal: controller.signal, classifyFailure: downloadFailure, operations: previewOperations, start: navigation?.start || 1 });
+    if (controller.signal.aborted || shuttingDown) throw userError("La consulta fue cancelada.", 499);
+    if (navigation) {
+      if (playlistStore.preview(navigation.preview.id) !== navigation.preview) throw userError("La vista previa venció.", 410);
+      return sendJson(res, 200, playlistStore.savePage(navigation.preview, navigation.token, metadata));
+    }
+    return sendJson(res, 200, playlistStore.addPreview(metadata, { url, host: classification.host }));
+  } finally { res.removeListener("close", onClose); pendingJobs -= 1; pendingOutputBytes -= reserved; }
 }
 
 function filenameHeader(filename) {
@@ -593,13 +686,55 @@ async function route(req, res) {
     const job = await startJob(body.kind, body.url);
     return sendJson(res, 202, publicJob(job));
   }
+  if (req.method === "POST" && pathname === "/api/playlists/preview") {
+    authorize(req, res);
+    return previewPlaylist(req, res, await readJson(req));
+  }
+  if (req.method === "POST" && pathname === "/api/playlist-batches") {
+    authorize(req, res); limitOperation(req, res, batchAttempts, 5);
+    return sendJson(res, 201, playlistStore.create(await readJson(req, 256 * 1024)));
+  }
+  const automaticMatch = pathname.match(/^\/api\/playlist-batches\/([0-9a-f-]{36})\/items\/([0-9a-f-]{36})\/(transfer-ticket|save-confirmation|file)$/i);
+  if (automaticMatch) {
+    const [, batchId, entryId, action] = automaticMatch;
+    if (req.method === "GET" && action === "file") {
+      if ([...requestUrl.searchParams].length !== 1 || !requestUrl.searchParams.has("ticket")) throw userError("Parámetros no permitidos.");
+      return automatic.file(batchId, entryId, requestUrl.searchParams.get("ticket"), res);
+    }
+    authorize(req, res);
+    if (requestUrl.search) throw userError("Parámetros no permitidos.");
+    if (req.method === "POST" && action === "transfer-ticket") return sendJson(res, 200, await automatic.ticket(batchId, entryId, await readJson(req)));
+    if (req.method === "POST" && action === "save-confirmation") return sendJson(res, 200, await automatic.confirm(batchId, entryId, await readJson(req)));
+  }
+  const archiveMatch = pathname.match(/^\/api\/playlist-batches\/([0-9a-f-]{36})\/archive\/(append|finalize|ticket|file)$/i);
+  if (archiveMatch) {
+    const [, batchId, action] = archiveMatch;
+    if (req.method === "GET" && action === "file") {
+      if ([...requestUrl.searchParams].length !== 1 || !requestUrl.searchParams.has("ticket")) throw userError("Parámetros no permitidos.");
+      return archives.file(batchId, requestUrl.searchParams.get("ticket"), res);
+    }
+    authorize(req, res);
+    if (requestUrl.search) throw userError("Parámetros no permitidos.");
+    if (req.method === "POST" && ["append", "finalize", "ticket"].includes(action)) return sendJson(res, 200, await archives[action](batchId, await readJson(req)));
+  }
+  const batchMatch = pathname.match(/^\/api\/playlist-batches\/([0-9a-f-]{36})(?:\/items\/([0-9a-f-]{36})\/start)?$/i);
+  if (batchMatch) {
+    authorize(req, res);
+    const [, batchId, entryId] = batchMatch;
+    if (req.method === "POST" && entryId) return sendJson(res, 202, await playlistStore.start(batchId, entryId, await readJson(req), () => limitJobCreation(req, res, true)));
+    if (req.method === "GET" && !entryId) return sendJson(res, 200, playlistStore.publicBatch(playlistStore.get(batchId)));
+    if (req.method === "DELETE" && !entryId) {
+      if ([...requestUrl.searchParams].some(([key, value]) => key !== "discard" || value !== "true") || [...requestUrl.searchParams].length > 1) throw userError("La solicitud contiene parámetros no permitidos.");
+      return sendJson(res, 200, await playlistStore.cancel(batchId, requestUrl.searchParams.get("discard") === "true"));
+    }
+  }
   const match = pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})(?:\/(file|ticket))?$/i);
   if (match) {
     const [, id, filePart] = match;
     const token = requestUrl.searchParams.get("ticket");
     if (req.method === "GET" && filePart === "file") {
       const ticket = tickets.get(token);
-      if (!ticket || ticket.jobId !== id || Date.now() >= ticket.expiresAt) {
+      if (!ticket || ticket.type !== "manual" || ticket.jobId !== id || Date.now() >= ticket.expiresAt) {
         if (ticket && Date.now() >= ticket.expiresAt) tickets.delete(token);
         throw userError("El permiso de descarga venció o ya fue usado. Solicitá otro desde la app.", 401);
       }
@@ -609,12 +744,14 @@ async function route(req, res) {
     }
     const job = jobs.get(id);
     if (!job) throw userError("Esa descarga ya no está disponible. Envía el enlace otra vez.", 404);
+    if (job.playlistOwner && job.playlistOwner.deliveryMode !== "manual" && filePart) throw userError("Usá la entrega correspondiente a esta tanda.", 409);
     if (req.method === "POST" && filePart === "ticket") {
       if (job.status !== "complete" || job.delivered || !job.outputPath) throw userError("El archivo todavía no está listo o ya fue descargado.", 409);
       let media;
       try { media = await openMedia(job, TEMP_ROOT, MAX_OUTPUT_BYTES); await media.file.close(); } catch {
         job.status = "failed";
         job.message = "El archivo temporal ya no está disponible. Prepará la descarga nuevamente.";
+        job.failureReason = "output_unavailable";
         await removeJobFiles(job);
         throw userError(job.message, 410);
       }
@@ -622,24 +759,12 @@ async function route(req, res) {
       for (const [existing, ticket] of tickets) if (ticket.jobId === id) tickets.delete(existing);
       const value = randomBytes(32).toString("base64url");
       const expiresAt = Date.now() + TICKET_TTL_MS;
-      tickets.set(value, { jobId: id, expiresAt });
+      tickets.set(value, { type: "manual", jobId: id, expiresAt });
       return sendJson(res, 200, { downloadUrl: `/api/jobs/${id}/file?ticket=${value}`, expiresAt, filename: job.filename });
     }
     if (req.method === "GET" && !filePart) return sendJson(res, 200, publicJob(job));
     if (req.method === "DELETE" && !filePart) {
-      if (job.child && job.status === "running") {
-        job.status = "cancelled";
-        job.message = "Descarga cancelada.";
-        const child = job.child;
-        signalDownload(child, "SIGTERM");
-        job.egressSession?.close();
-        job.killTimer = setTimeout(() => signalDownload(child, "SIGKILL"), 1500); job.killTimer.unref();
-        await job.completion;
-      } else {
-        job.status = "cancelled";
-        job.message = "Descarga cancelada.";
-        await removeJobFiles(job);
-      }
+      await cancelJob(job);
       return sendJson(res, 200, publicJob(job));
     }
     if (req.method === "GET" && filePart === "file") {
@@ -653,6 +778,7 @@ async function route(req, res) {
       }
       if (job.delivered || job.status !== "complete") { await media.file.close(); throw userError("El archivo ya no está disponible.", 410); }
       job.delivered = true;
+      job.deliveryInProgress = true;
       res.writeHead(200, {
         "Content-Type": job.kind === "audio" ? "audio/mpeg" : "video/mp4",
         "Content-Length": media.stat.size,
@@ -668,6 +794,8 @@ async function route(req, res) {
         await removeJobFiles(job);
         job.outputPath = null;
         job.status = res.writableFinished ? "delivered" : "failed";
+        job.deliveryInProgress = false;
+        if (!res.writableFinished) job.failureReason = "delivery_interrupted";
         job.message = res.writableFinished ? "Archivo descargado." : "La entrega se interrumpió. Prepará la descarga nuevamente.";
       });
       return;
@@ -689,9 +817,11 @@ async function cleanStaleFiles() {
 function cleanExpiredJobs() {
   const now = Date.now();
   for (const [token, ticket] of tickets) if (now >= ticket.expiresAt) tickets.delete(token);
-  for (const map of [authFailures, jobAttempts]) for (const [key, value] of map) if (now >= value.expiresAt) map.delete(key);
+  for (const map of [authFailures, jobAttempts, previewAttempts, batchAttempts]) for (const [key, value] of map) if (now >= value.expiresAt) map.delete(key);
+  void archives.sweep().catch(() => {});
+  playlistStore.sweep();
   for (const [id, job] of jobs) {
-    if (!["running", "queued"].includes(job.status) && now - (job.completedAt || job.createdAt) > JOB_TTL_MS) {
+    if (!job.deliveryInProgress && !job.archiveInProgress && !["running", "queued"].includes(job.status) && now - (job.completedAt || job.createdAt) > JOB_TTL_MS) {
       void removeJobFiles(job);
       jobs.delete(id);
     }
@@ -726,7 +856,8 @@ async function main() {
     route(req, res).catch((error) => {
       if (res.headersSent) return res.destroy();
       const status = Number.isInteger(error.status) ? error.status : 500;
-      sendJson(res, status, { error: error.userMessage || "Ocurrió un error interno. Inténtalo nuevamente." });
+      sendJson(res, status, { error: error.userMessage || "Ocurrió un error interno. Inténtalo nuevamente.",
+        ...(error.code === "E_MEDIA_ADMISSION_RATE" ? { code: error.code } : {}) });
       if (status >= 500) process.stderr.write(SOURCE_SESSION ? '{"event":"request_failed","reason":"internal_error"}\n' : `${error.stack || error}\n`);
     });
   });
@@ -748,6 +879,9 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    archives.shutdown();
+    for (const job of jobs.values()) job.automaticTransfer?.abort();
+    for (const operation of previewOperations) operation.stop?.();
     server?.close();
     for (const job of jobs.values()) if (job.child) {
       const child = job.child;

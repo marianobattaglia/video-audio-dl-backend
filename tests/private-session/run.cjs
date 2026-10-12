@@ -157,7 +157,7 @@ async function clean(id) { await waitFor(async () => !(await fs.stat(`/tmp/downl
     });
     await test("Injected cleanup failure blocks session jobs, then retries after repair", async () => {
       await fs.writeFile("/tmp/qualification-fail-cleanup", "fixture");
-      try { const id = await create(); assert.equal((await terminal(id)).status, "failed"); assert.equal((await request("/api/jobs", { method: "POST", body: { kind: "video", url: "https://www.youtube.com/watch" } })).status, 503); confidential(logs); }
+      try { const id = await create(); assert.equal((await terminal(id)).status, "failed"); assert.equal((await request("/api/jobs", { method: "POST", body: { kind: "video", url: "https://www.youtube.com/watch?v=complete" } })).status, 503); confidential(logs); }
       finally { await fs.unlink("/tmp/qualification-fail-cleanup"); }
       const retry = await create(); assert.equal((await terminal(retry)).status, "complete"); await request(`/api/jobs/${retry}`, { method: "DELETE" }); await clean(retry);
     });

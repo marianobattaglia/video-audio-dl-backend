@@ -18,6 +18,8 @@ Casos: matriz de arranque/autorización, fuente/normalización/permisos, presupu
 
 El script principal no automatiza un navegador. Para el recorrido local, construir el frontend con `API_BASE_URL=http://localhost:43001` y `build({local:true})`, ejecutar `node tests/private-session/browser-server.cjs`, y habilitar el fixture:
 
+Incluye además la matriz de playlists, paginación de una lista ficticia de 123 posiciones, selección superior a cinco, navegación cacheada, selección entre páginas y lanzador fijado en tres rangos. `tests/playlists/unit.cjs` y `frontend.cjs` comprueban store/controlador; `development.cjs` comprueba el servidor local real y la entrega de sus scripts. No equivalen a un recorrido de navegador o una publicación real.
+
 ```powershell
 docker compose -p video-audio-dl-private-session-tests -f tests/private-session/compose.yaml --profile browser up -d browser-api
 ```

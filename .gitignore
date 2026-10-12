@@ -13,3 +13,5 @@ cookies/
 *cookies*.txt
 *Cookies*.txt
 *.cookiejar
+# Detailed synthetic reports are local; publish the sanitized evidence document.
+tests/private-session/results-modes-initial-2026-10-12.json

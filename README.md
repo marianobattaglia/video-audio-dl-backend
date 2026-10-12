@@ -95,6 +95,8 @@ Se limita por la dirección del socket, sin confiar en cabeceras `X-Forwarded-Fo
 
 ## Contrato HTTP
 
+Las playlists fijas de YouTube/YouTube Music tienen vista previa por páginas, selección sin máximo fijo de canciones y modos Manual, Automático a carpeta y ZIP. Consultá [PLAYLISTS.md](PLAYLISTS.md) para contratos de confirmación/paquete, navegación, cuotas, espacio, verificación y rollback. Una canción con contexto de playlist mantiene el contrato individual.
+
 Con `AUTH_REQUIRED=true`, las operaciones de creación, estado, cancelación y emisión de permisos reciben `Authorization: Bearer CLAVE`. Con `false`, esas operaciones no exigen clave. Los límites de frecuencia y concurrencia, CORS, controles de destinos y permisos de archivo siguen activos en ambos modos. El backend rechaza orígenes de navegador no configurados y soporta preflight para `GET`, `POST`, `DELETE`, `Authorization` y `Content-Type`.
 
 | Método y ruta | Autorización | Resultado |

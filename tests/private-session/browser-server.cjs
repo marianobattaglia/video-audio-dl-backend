@@ -5,6 +5,9 @@ const path = require("node:path");
 const frontend = path.resolve(__dirname, "../../../video-audio-dl-frontend");
 const files = new Map([["/", "index.html"], ["/index.html", "index.html"], ["/app.js", "app.js"], ["/styles.css", "styles.css"], ["/config.js", "config.js"]]);
 const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
+files.set("/playlist-links.js", "playlist-links.js");
+files.set("/playlist-controller.js", "playlist-controller.js");
+files.set("/directory-saver.js", "directory-saver.js");
 (async () => {
   const vercel = JSON.parse(await fs.readFile(path.join(frontend, "vercel.json"), "utf8"));
   const headers = Object.fromEntries(vercel.headers[0].headers.map(header => [header.key, header.value]));

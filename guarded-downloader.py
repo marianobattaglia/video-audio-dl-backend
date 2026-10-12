@@ -78,6 +78,13 @@ os.environ["no_proxy"] = ""
 
 from yt_dlp import main
 
+# Both modes retain the inherited kernel/network policy. Preview permits only
+# metadata enumeration; the API, never a caller-supplied flag, chooses the mode.
+media_spec = importlib.util.spec_from_file_location("single_media_policy", "/app/single_media_policy.py")
+media_module = importlib.util.module_from_spec(media_spec)
+media_spec.loader.exec_module(media_module)
+media_module.install_policy(os.environ.pop("APP_MEDIA_MODE", "single"))
+
 if "--cookies" in sys.argv[1:]:
     # Python -I excludes /app from module lookup. Load this trusted file by
     # its fixed path, without adding the working directory to sys.path.

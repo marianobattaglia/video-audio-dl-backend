@@ -22,6 +22,42 @@ value = pathlib.Path(cookie_file).read_text().splitlines()[-1].split("\t")[-1] i
 audit = pathlib.Path(os.environ["TMPDIR"]) / "fixture-audit.json"
 audit.write_text(json.dumps({"pid": os.getpid(), "args": args, "cookieFile": cookie_file, "hasCredentialEnv": "ACCESS_CREDENTIAL" in os.environ, "hasSourceEnv": "YOUTUBE_COOKIES_FILE" in os.environ}))
 print("ERROR: fixture diagnostic " + value, file=sys.stderr, flush=True)
+if os.environ.get("APP_MEDIA_MODE") == "playlist_preview":
+    playlist = urllib.parse.parse_qs(url.query).get("list", [""])[0]
+    if playlist == "PLslow":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        while True:
+            time.sleep(.1)
+    if playlist == "PLoversize":
+        print("x" * (300 * 1024), flush=True)
+    elif playlist == "PLbadjson":
+        print("not-json", flush=True)
+    else:
+        total = 123 if playlist == "PLpages" else 51 if playlist == "PLlarge" else 0 if playlist == "PLempty" else 7
+        span = args[args.index("--playlist-items") + 1]
+        first, last = map(int, span.split(":"))
+        indices = range(first - 1, min(last, total))
+        entries = [{"id": f"pl{i:09d}", "title": f"Canción de prueba {i + 1}", "duration": 3,
+                    "url": "http://127.0.0.1/never", "http_headers": {"Cookie": value}, "thumbnail": "https://untrusted.invalid/image"} for i in indices]
+        if first == 1 and entries and playlist in ("PLmixed", "PLlarge"):
+            entries[1]["id"] = entries[0]["id"]
+            entries[2] = {"title": "[Private video]", "http_headers": {"Cookie": value}}
+            entries[3]["title"] = "<img src=x onerror=alert(1)>"
+            entries[3].pop("duration")
+        if playlist == "PLpartial":
+            entries[1]["id"] = "fail0000000"
+        if playlist == "PLbots":
+            entries[1]["id"] = "bots0000000"
+        if playlist == "PLactive":
+            entries[1]["id"] = "slow0000000"
+        print(json.dumps({"_type": "playlist", "title": "Lista de prueba · música", "entries": entries,
+                          "playlist_count": 80 if playlist == "PLlarge" else None if playlist == "PLpages" else total, "http_headers": {"Cookie": value}, "filepath": cookie_file}), flush=True)
+    sys.exit(0)
+if mode == "slow0000000":
+    mode = "slow"
+if mode in ("fail0000000", "bots0000000"):
+    print("ERROR: Video unavailable" if mode == "fail0000000" else "ERROR: Sign in to confirm you're not a bot", file=sys.stderr, flush=True)
+    sys.exit(1)
 print("fixture output " + value, flush=True)
 
 if mode in ("slow", "timeout", "child"):
@@ -62,4 +98,6 @@ else:
     shutil.copyfile("/tmp/yt-dlp/qualification-media.mp4", output)
 if mode == "readable-title":
     print("APP_TITLE:" + json.dumps("Canción / de prueba: ¿Qué tal?"), flush=True)
+if mode.startswith("pl"):
+    print("APP_TITLE:" + json.dumps("Canción de prueba " + str(int(mode[2:]) + 1)), flush=True)
 print("APP_OUTPUT:" + str(output), flush=True)
